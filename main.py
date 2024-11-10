@@ -1,131 +1,154 @@
 import cv2
 from ultralytics import YOLO
 import easyocr
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+import csv
 from datetime import datetime
 import logging
-import threading
-import queue
+import os
 
 # Set up logging
 logging.basicConfig(filename='anpr_log.txt', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
 
-# Initialize YOLOv10 model
-model = YOLO('yolov10n.pt')  # Use the smallest model for speed
+# Initialize models
+try:
+    vehicle_model = YOLO('yolo11n.pt')  # Pre-trained YOLOv11n
+    license_plate_model = YOLO('best28.pt')  # Your custom-trained model
+except Exception as e:
+    logging.error(f"Error loading YOLO models: {e}")
+    raise
 
 # Initialize EasyOCR reader
-reader = easyocr.Reader(['en'], gpu=False)  # Use GPU for OCR
+try:
+    reader = easyocr.Reader(['en'], gpu=False)  # Disable GPU for OCR
+except Exception as e:
+    logging.error(f"Error initializing EasyOCR: {e}")
+    raise
 
-# Initialize database
-Base = declarative_base()
-engine = create_engine('sqlite:///anpr_database.db')
-Session = sessionmaker(bind=engine)
+# Create output directories
+output_dir = 'anpr_output'
+frames_dir = os.path.join(output_dir, 'frames')
+plates_dir = os.path.join(output_dir, 'plates')
+os.makedirs(output_dir, exist_ok=True)
+os.makedirs(frames_dir, exist_ok=True)
+os.makedirs(plates_dir, exist_ok=True)
 
+# CSV file setup
+csv_file = os.path.join(output_dir, 'anpr_data.csv')
+csv_headers = ['object_id', 'plate_number', 'timestamp', 'location', 'confidence', 'frame_path', 'plate_path']
 
-class PlateRecord(Base):
-    __tablename__ = 'plate_records'
-    id = Column(Integer, primary_key=True)
-    plate_number = Column(String)
-    timestamp = Column(DateTime)
-    location = Column(String)
-    confidence = Column(Float)
-
-
-Base.metadata.create_all(engine)
-
-
-def detect_and_recognize_plate(frame):
-    results = model(frame)
-
-    for result in results:
-        boxes = result.boxes.xyxy.cpu().numpy()
-        confidences = result.boxes.conf.cpu().numpy()
-
-        for box, confidence in zip(boxes, confidences):
-            if confidence > 0.5:  # Confidence threshold
-                x1, y1, x2, y2 = map(int, box[:4])
-                plate_img = frame[y1:y2, x1:x2]
-
-                # Perform OCR on the cropped image
-                ocr_result = reader.readtext(plate_img)
-
-                if ocr_result:
-                    plate_text = ocr_result[0][1]
-                    return plate_text, confidence, (x1, y1, x2, y2)
-
-    return None, None, None
+# Create CSV file if it doesn't exist
+if not os.path.exists(csv_file):
+    with open(csv_file, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(csv_headers)
 
 
-def store_plate(plate_number, confidence, location):
-    session = Session()
-    new_record = PlateRecord(plate_number=plate_number,
-                             timestamp=datetime.now(),
-                             location=location,
-                             confidence=confidence)
-    session.add(new_record)
-    session.commit()
-    session.close()
+def detect_vehicles(frame):
+    try:
+        results = vehicle_model(frame)
+        vehicles = []
+        for result in results:
+            boxes = result.boxes.xyxy.cpu().numpy()
+            confidences = result.boxes.conf.cpu().numpy()
+            for box, confidence in zip(boxes, confidences):
+                if confidence > 0.5:  # Confidence threshold
+                    vehicles.append(box)
+        return vehicles
+    except Exception as e:
+        logging.error(f"Error in vehicle detection: {e}")
+        return []
 
 
-def process_frame(frame_queue, result_queue):
-    while True:
-        frame = frame_queue.get()
-        if frame is None:
-            break
-        plate_text, confidence, bbox = detect_and_recognize_plate(frame)
-        result_queue.put((plate_text, confidence, bbox))
+def detect_license_plates(frame, vehicle_boxes):
+    try:
+        license_plates = []
+        for box in vehicle_boxes:
+            x1, y1, x2, y2 = map(int, box[:4])
+            vehicle_crop = frame[y1:y2, x1:x2]
+            results = license_plate_model(vehicle_crop)
+            for result in results:
+                plate_boxes = result.boxes.xyxy.cpu().numpy()
+                plate_confidences = result.boxes.conf.cpu().numpy()
+                for plate_box, plate_confidence in zip(plate_boxes, plate_confidences):
+                    if plate_confidence > 0.5:  # Confidence threshold
+                        px1, py1, px2, py2 = map(int, plate_box[:4])
+                        license_plates.append((x1 + px1, y1 + py1, x1 + px2, y1 + py2))
+        return license_plates
+    except Exception as e:
+        logging.error(f"Error in license plate detection: {e}")
+        return []
+
+
+def recognize_plate(plate_img):
+    try:
+        ocr_result = reader.readtext(plate_img)
+        if ocr_result:
+            return ocr_result[0][1], ocr_result[0][2]  # text and confidence
+        return None, None
+    except Exception as e:
+        logging.error(f"Error in plate recognition: {e}")
+        return None, None
+
+
+def store_plate(object_id, plate_number, confidence, location, frame_path, plate_path):
+    try:
+        with open(csv_file, 'a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([object_id, plate_number, datetime.now(), location, confidence, frame_path, plate_path])
+    except Exception as e:
+        logging.error(f"Error storing plate: {e}")
 
 
 def main():
-    cap = cv2.VideoCapture("input.mkv")
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    location = "Main Street Camera"
+    cap = cv2.VideoCapture("input_5.mkv")  # Use 0 for webcam or provide video file path
+    location = "Gate 6 In Camera"
 
-    frame_queue = queue.Queue(maxsize=1)
-    result_queue = queue.Queue()
+    if not cap.isOpened():
+        logging.error("Error opening video stream or file")
+        return
 
-    # Start processing thread
-    processing_thread = threading.Thread(target=process_frame, args=(frame_queue, result_queue))
-    processing_thread.start()
+    object_id = 0
 
-    frame_count = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             logging.error("Failed to capture frame")
             break
 
-        frame_count += 1
-        if frame_count % 3 != 0:  # Process every 3rd frame
-            continue
+        vehicle_boxes = detect_vehicles(frame)
+        license_plate_boxes = detect_license_plates(frame, vehicle_boxes)
 
-        if frame_queue.empty():
-            frame_queue.put(frame)
+        for box in vehicle_boxes:
+            x1, y1, x2, y2 = map(int, box[:4])
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        if not result_queue.empty():
-            plate_text, confidence, bbox = result_queue.get()
+        for box in license_plate_boxes:
+            x1, y1, x2, y2 = box
+            plate_img = frame[y1:y2, x1:x2]
+            plate_text, confidence = recognize_plate(plate_img)
             if plate_text:
-                store_plate(plate_text, confidence, location)
-                logging.info(f"Detected plate: {plate_text}, Confidence: {confidence}")
+                object_id += 1
+                frame_path = os.path.join(frames_dir, f'frame_{object_id}.jpg')
+                plate_path = os.path.join(plates_dir, f'plate_{object_id}.jpg')
 
-                # Draw bounding box and text on frame
-                x1, y1, x2, y2 = bbox
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, plate_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                cv2.imwrite(frame_path, frame)
+                cv2.imwrite(plate_path, plate_img)
+
+                store_plate(object_id, plate_text, confidence, location, frame_path, plate_path)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                cv2.putText(frame, plate_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
         cv2.imshow('ANPR', frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    frame_queue.put(None)  # Signal the processing thread to stop
-    processing_thread.join()
     cap.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logging.error(f"Main function error: {e}")
