@@ -7,6 +7,12 @@ import multiprocessing as mp
 import logging
 import schedule
 import time
+import smtplib
+import ssl
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -24,9 +30,19 @@ VIDEO_SOURCE = "input_5.mkv"
 RESIZE_FACTOR = 2
 TIME_FORMAT = '%Y%m%d_%H%M%S.%f'
 OUTPUT_DIR = "number_plates"
-HTML_HEADERS = ["S. No.", "Object ID", "Time Stamp", "HSRP Detected", "Middle Conf.", "Second Last Conf.",
-                "Middle Frame", "Second Last Frame", "Middle OCR", "Second Last OCR"]
+HTML_HEADERS = ["S. No.", "Object ID", "Time Stamp", "HSRP Detected", "Middle Conf.", "Second Last Conf.", "Middle OCR",
+                "Second Last OCR"]
 VEHICLE_CLASSES = {2, 3, 5, 7}
+
+# Email configuration
+sender_email = "your_email@example.com"
+to_emails = ["recipient1@example.com", "recipient2@example.com"]
+cc_emails = ["cc_recipient1@example.com", "cc_recipient2@example.com"]
+password = "your_password"
+subject = "Vehicle Detection Results"
+body = "Please find the attached HTML file with vehicle detection results."
+host = "smtp.gmail.com"
+port = 587
 
 # Initialize models
 try:
@@ -154,10 +170,6 @@ def create_html_table(data, output_file):
             th {
                 background-color: #f2f2f2;
             }
-            img {
-                max-width: 200px;
-                max-height: 200px;
-            }
         </style>
     </head>
     <body>
@@ -173,14 +185,8 @@ def create_html_table(data, output_file):
 
     for row in data:
         html_content += "<tr>"
-        for i, cell in enumerate(row):
-            if i in [6, 7]:  # Image columns
-                if cell:
-                    html_content += f'<td><img src="{cell}" alt="Vehicle Image"></td>'
-                else:
-                    html_content += '<td></td>'
-            else:
-                html_content += f"<td>{cell}</td>"
+        for cell in row:
+            html_content += f"<td>{cell}</td>"
         html_content += "</tr>"
 
     html_content += """
@@ -193,6 +199,65 @@ def create_html_table(data, output_file):
         f.write(html_content)
 
     logger.info(f"HTML file created: {output_file}")
+
+
+def send_email_with_attachment(sender_email, to_emails, cc_emails, password, subject, body, filename):
+    logger.info('Preparing to send email...')
+    logger.info('Sender: %s', sender_email)
+    logger.info('To: %s', ', '.join(to_emails))
+    logger.info('Cc: %s', ', '.join(cc_emails))
+    logger.info('Subject: %s', subject)
+    logger.info('Attachment: %s', filename)
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = ", ".join(to_emails)
+    message["Cc"] = ", ".join(cc_emails)
+    message["Subject"] = subject
+
+    message.attach(MIMEText(body, "plain"))
+    logger.debug('Email body attached')
+
+    try:
+        with open(filename, "rb") as attachment:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(attachment.read())
+        logger.debug('File %s read successfully', filename)
+    except IOError as e:
+        logger.error('Failed to read attachment file: %s', e)
+        raise
+
+    encoders.encode_base64(part)
+    logger.debug('File encoded successfully')
+
+    part.add_header(
+        "Content-Disposition",
+        f"attachment; filename= {filename}",
+    )
+
+    message.attach(part)
+    logger.debug('Attachment added to message')
+
+    text = message.as_string()
+
+    all_recipients = to_emails + cc_emails
+
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP(host, port) as server:
+            logger.info('Connecting to SMTP server...')
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            server.login(sender_email, password)
+            logger.info('Logged in successfully')
+            server.sendmail(sender_email, all_recipients, text)
+            logger.info('Email sent successfully!')
+    except smtplib.SMTPException as e:
+        logger.error('An error occurred while sending the email: %s', e)
+        raise
+
+    logger.info('Email sending process completed')
 
 
 def run_ocr_and_save_to_html(date):
@@ -235,8 +300,6 @@ def run_ocr_and_save_to_html(date):
                 "Yes" if text1 or text2 else "No",
                 confidence1,
                 confidence2,
-                f"plates/{obj_id}/{image_file1}" if image_file1 else "",
-                f"plates/{obj_id}/{image_file2}" if image_file2 else "",
                 text1,
                 text2
             ]
@@ -244,6 +307,7 @@ def run_ocr_and_save_to_html(date):
             serial += 1
 
     create_html_table(data, output_file)
+    send_email_with_attachment(sender_email, to_emails, cc_emails, password, subject, body, output_file)
     logger.info(f"OCR process completed and results saved to HTML for {date}")
 
 
@@ -278,8 +342,8 @@ def main():
     vehicle_process.start()
     plate_process.start()
 
-    # Schedule the OCR job to run daily at 00:01 AM
-    schedule.every().day.at("18:12").do(scheduled_job)
+    # Schedule the OCR job to run daily at 19:08 PM
+    schedule.every().day.at("19:08").do(scheduled_job)
 
     # Run the scheduled jobs
     while True:
