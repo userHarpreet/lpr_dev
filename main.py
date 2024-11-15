@@ -14,6 +14,7 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from openpyxl.drawing.image import Image as XLImage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -31,7 +32,7 @@ VIDEO_SOURCE = "input_5.mkv"
 RESIZE_FACTOR = 2
 TIME_FORMAT = '%Y%m%d_%H%M%S.%f'
 OUTPUT_DIR = "number_plates"
-EXCEL_HEADERS = ["S. No.", "Object ID", "HSRP Detected", "Middle Conf.", "Middle Frame", "Second Last Conf.", "Second Last Frame", "Middle OCR", "Second Last OCR"]
+EXCEL_HEADERS = ["S. No.", "Object ID", "Time Stamp", "HSRP Detected", "Middle Conf.", "Second Last Conf.", "Middle Frame", "Second Last Frame", "Middle OCR", "Second Last OCR"]
 VEHICLE_CLASSES = {2, 3, 5, 7}
 
 # Usage
@@ -227,6 +228,11 @@ def send_email_with_attachment(sender_email, to_emails, cc_emails, password, sub
     logger.info('Email sending process completed')
 
 
+def insert_image_to_excel(image_path, sheet, cell):
+    img = XLImage(image_path)
+    sheet.add_image(img, cell)
+
+
 def run_ocr_and_save_to_excel(date):
     logger.info(f"Starting OCR process for {date}")
 
@@ -239,6 +245,10 @@ def run_ocr_and_save_to_excel(date):
 
     workbook = openpyxl.load_workbook(output_file)
     sheet = workbook.active
+    serial = sheet.max_row
+
+    mid_photo_cell = f"G{str(serial + 1)}"
+    last_photo_cell = f"H{str(serial + 1)}"
 
     for obj_id in os.listdir(plates_dir):
         obj_dir = os.path.join(plates_dir, obj_id)
@@ -267,21 +277,44 @@ def run_ocr_and_save_to_excel(date):
             text1, confidence1, image_file1 = results[0] if len(results) > 0 else (None, None, None)
             text2, confidence2, image_file2 = results[1] if len(results) > 1 else (None, None, None)
 
+            tStamp = image_file1[0:13]
+
+            pos_date = [4, 6]
+
+            # Sort positions to ensure correct insertion order
+            pos_date.sort()
+
+            # Insert / for date at specified positions
+            for i, pos in enumerate(pos_date):
+                tStamp = tStamp[:pos + i] + '/' + tStamp[pos + i:]
+
+            # Replace _ for ' '
+            tStamp = tStamp.replace("_", " ")
+
+            # Insert : for Time
+            tStamp = tStamp[:13] + ':' + tStamp[13:]
+
             row = [
                 sheet.max_row,
                 obj_id,
+                tStamp,
                 "Yes" if text1 or text2 else "No",  # If either found a plate
                 confidence1,
-                f"{obj_id}/{image_file1}" if image_file1 else "",
                 confidence2,
+                f"" if image_file1 else "",
                 f"{obj_id}/{image_file2}" if image_file2 else "",
                 text1,
                 text2
             ]
             sheet.append(row)
 
+            # Add photo to the Excel file
+            insert_image_to_excel(f"{plates_dir}/{obj_id}/{image_file1}", sheet, mid_photo_cell)
+            insert_image_to_excel(f"{plates_dir}/{obj_id}/{image_file2}", sheet, last_photo_cell)
+
     workbook.save(output_file)
-    send_email_with_attachment(sender_email, to_emails, cc_emails, password, subject, body, output_file)
+
+    # send_email_with_attachment(sender_email, to_emails, cc_emails, password, subject, body, output_file)
     logger.info(f"OCR process completed and results saved to Excel for {date}")
 
 
