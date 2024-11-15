@@ -1,6 +1,5 @@
 import os
 import cv2
-import openpyxl
 import easyocr
 from ultralytics import YOLO
 from datetime import datetime, timedelta
@@ -8,13 +7,6 @@ import multiprocessing as mp
 import logging
 import schedule
 import time
-import smtplib
-import ssl
-from email import encoders
-from email.mime.base import MIMEBase
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from openpyxl.drawing.image import Image as XLImage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -32,18 +24,9 @@ VIDEO_SOURCE = "input_5.mkv"
 RESIZE_FACTOR = 2
 TIME_FORMAT = '%Y%m%d_%H%M%S.%f'
 OUTPUT_DIR = "number_plates"
-EXCEL_HEADERS = ["S. No.", "Object ID", "Time Stamp", "HSRP Detected", "Middle Conf.", "Second Last Conf.", "Middle Frame", "Second Last Frame", "Middle OCR", "Second Last OCR"]
+HTML_HEADERS = ["S. No.", "Object ID", "Time Stamp", "HSRP Detected", "Middle Conf.", "Second Last Conf.",
+                "Middle Frame", "Second Last Frame", "Middle OCR", "Second Last OCR"]
 VEHICLE_CLASSES = {2, 3, 5, 7}
-
-# Usage
-sender_email = "your_email@dccmail.in"
-to_emails = ["recipient1@example.com", "recipient2@example.com"]
-cc_emails = ["cc_recipient1@example.com", "cc_recipient2@example.com"]
-password = "your_password"
-subject = "Email with Attachment"
-body = "Please find the attached file."
-host = "smtp.gmail.com"
-port = 465
 
 # Initialize models
 try:
@@ -119,9 +102,7 @@ def process_frame(frame, result):
 
     for obj in result.boxes.data.tolist():
         try:
-            # Adapt the unpacking to match the actual structure (6 values instead of 7)
-            x1, y1, x2, y2, obj_id, conf, obj_class = (map(float, obj))
-
+            x1, y1, x2, y2, obj_id, conf, obj_class = map(float, obj)
             if obj_class in VEHICLE_CLASSES:
                 vehicle = frame[int(y1):int(y2), int(x1):int(x2)]
                 timestamp = get_plate(vehicle, obj_id)
@@ -152,175 +133,134 @@ def plate_detection(frame_queue, result_queue):
         result_queue.put(result)
 
 
-def save_blank_excel(output_file):
-    workbook = openpyxl.Workbook()
-    workbook.active.append(EXCEL_HEADERS)
-    workbook.save(output_file)
-    logger.info(f"Created blank Excel file: {output_file}")
+def create_html_table(data, output_file):
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Vehicle Detection Results</title>
+        <style>
+            table {
+                border-collapse: collapse;
+                width: 100%;
+            }
+            th, td {
+                border: 1px solid black;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: #f2f2f2;
+            }
+            img {
+                max-width: 200px;
+                max-height: 200px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Vehicle Detection Results</h1>
+        <table>
+            <tr>
+    """
+
+    for header in HTML_HEADERS:
+        html_content += f"<th>{header}</th>"
+
+    html_content += "</tr>"
+
+    for row in data:
+        html_content += "<tr>"
+        for i, cell in enumerate(row):
+            if i in [6, 7]:  # Image columns
+                if cell:
+                    html_content += f'<td><img src="{cell}" alt="Vehicle Image"></td>'
+                else:
+                    html_content += '<td></td>'
+            else:
+                html_content += f"<td>{cell}</td>"
+        html_content += "</tr>"
+
+    html_content += """
+        </table>
+    </body>
+    </html>
+    """
+
+    with open(output_file, 'w') as f:
+        f.write(html_content)
+
+    logger.info(f"HTML file created: {output_file}")
 
 
-def send_email_with_attachment(sender_email, to_emails, cc_emails, password, subject, body, filename):
-    logger.info('Preparing to send email...')
-    logger.info('Sender: %s', sender_email)
-    logger.info('To: %s', ', '.join(to_emails))
-    logger.info('Cc: %s', ', '.join(cc_emails))
-    logger.info('Subject: %s', subject)
-    logger.info('Attachment: %s', filename)
-
-    # Create a multipart message
-    message = MIMEMultipart()
-    message["From"] = sender_email
-    message["To"] = ", ".join(to_emails)
-    message["Cc"] = ", ".join(cc_emails)
-    message["Subject"] = subject
-
-    # Add body to email
-    message.attach(MIMEText(body, "plain"))
-    logger.debug('Email body attached')
-
-    # Open the file in binary mode
-    try:
-        with open(filename, "rb") as attachment:
-            # Add file as application/octet-stream
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(attachment.read())
-        logger.debug('File %s read successfully', filename)
-    except IOError as e:
-        logger.error('Failed to read attachment file: %s', e)
-        raise
-
-    # Encode file in ASCII characters to send by email
-    encoders.encode_base64(part)
-    logger.debug('File encoded successfully')
-
-    # Add header as key/value pair to attachment part
-    part.add_header(
-        "Content-Disposition",
-        f"attachment; filename= {filename}",
-    )
-
-    # Add attachment to message
-    message.attach(part)
-    logger.debug('Attachment added to message')
-
-    # Convert message to string
-    text = message.as_string()
-
-    # Combine all recipients
-    all_recipients = to_emails + cc_emails
-
-    # Log in to server using secure context and send email
-    context = ssl.create_default_context()
-    try:
-        with smtplib.SMTP(host, port) as server:
-            logger.info('Connecting to SMTP server...')
-            server.ehlo()  # Can be omitted
-            server.starttls(context=context)
-            server.ehlo()  # Can be omitted
-            server.login(sender_email, password)
-            logger.info('Logged in successfully')
-            server.sendmail(sender_email, all_recipients, text)
-            logger.info('Email sent successfully!')
-    except smtplib.SMTPException as e:
-        logger.error('An error occurred while sending the email: %s', e)
-        raise
-
-    logger.info('Email sending process completed')
-
-
-def insert_image_to_excel(image_path, sheet, cell):
-    img = XLImage(image_path)
-    sheet.add_image(img, cell)
-
-
-def run_ocr_and_save_to_excel(date):
+def run_ocr_and_save_to_html(date):
     logger.info(f"Starting OCR process for {date}")
-
     input_dir = os.path.join(OUTPUT_DIR, date)
     plates_dir = os.path.join(input_dir, "plates")
-    output_file = os.path.join(input_dir, f"output_{date}.xlsx")
+    output_file = os.path.join(input_dir, f"index.html")
 
-    if not os.path.exists(output_file):
-        save_blank_excel(output_file)
-
-    workbook = openpyxl.load_workbook(output_file)
-    sheet = workbook.active
-    serial = sheet.max_row
-
-    mid_photo_cell = f"G{str(serial + 1)}"
-    last_photo_cell = f"H{str(serial + 1)}"
+    data = []
+    serial = 1
 
     for obj_id in os.listdir(plates_dir):
         obj_dir = os.path.join(plates_dir, obj_id)
-        image_files = sorted(os.listdir(obj_dir))  # Sort filenames
+        image_files = sorted(os.listdir(obj_dir))
 
-        # Determine the middle and second to last images
         indices_to_process = []
         if len(image_files) > 1:
             middle_index = len(image_files) // 2
             second_last_index = len(image_files) - 2
             indices_to_process = [middle_index, second_last_index]
 
-        results = []  # To hold results for the current object ID
-
+        results = []
         for index in indices_to_process:
             if index < len(image_files):
                 image_file = image_files[index]
                 image_path = os.path.join(obj_dir, image_file)
                 plate_img = cv2.imread(image_path)
-
                 text, confidence = recognize_plate(plate_img)
-                results.append((text, confidence, image_file))  # Store results
+                results.append((text, confidence, image_file))
 
-        # If we have results, write them to the Excel sheet
         if results:
             text1, confidence1, image_file1 = results[0] if len(results) > 0 else (None, None, None)
             text2, confidence2, image_file2 = results[1] if len(results) > 1 else (None, None, None)
-
-            tStamp = image_file1[0:13]
-
-            pos_date = [4, 6]
-
-            # Sort positions to ensure correct insertion order
-            pos_date.sort()
-
-            # Insert / for date at specified positions
-            for i, pos in enumerate(pos_date):
-                tStamp = tStamp[:pos + i] + '/' + tStamp[pos + i:]
-
-            # Replace _ for ' '
-            tStamp = tStamp.replace("_", " ")
-
-            # Insert : for Time
-            tStamp = tStamp[:13] + ':' + tStamp[13:]
+            tStamp = get_timestamp_from_filename(image_file1)
 
             row = [
-                sheet.max_row,
+                serial,
                 obj_id,
                 tStamp,
-                "Yes" if text1 or text2 else "No",  # If either found a plate
+                "Yes" if text1 or text2 else "No",
                 confidence1,
                 confidence2,
-                f"" if image_file1 else "",
-                f"{obj_id}/{image_file2}" if image_file2 else "",
+                f"plates/{obj_id}/{image_file1}" if image_file1 else "",
+                f"plates/{obj_id}/{image_file2}" if image_file2 else "",
                 text1,
                 text2
             ]
-            sheet.append(row)
+            data.append(row)
+            serial += 1
 
-            # Add photo to the Excel file
-            insert_image_to_excel(f"{plates_dir}/{obj_id}/{image_file1}", sheet, mid_photo_cell)
-            insert_image_to_excel(f"{plates_dir}/{obj_id}/{image_file2}", sheet, last_photo_cell)
+    create_html_table(data, output_file)
+    logger.info(f"OCR process completed and results saved to HTML for {date}")
 
-    workbook.save(output_file)
 
-    # send_email_with_attachment(sender_email, to_emails, cc_emails, password, subject, body, output_file)
-    logger.info(f"OCR process completed and results saved to Excel for {date}")
+def get_timestamp_from_filename(filename):
+    tStamp = filename[0:13]
+    pos_date = [4, 6]
+    pos_date.sort()
+    for i, pos in enumerate(pos_date):
+        tStamp = tStamp[:pos + i] + '/' + tStamp[pos + i:]
+    tStamp = tStamp.replace("_", " ")
+    tStamp = tStamp[:13] + ':' + tStamp[13:]
+    return tStamp
 
 
 def scheduled_job():
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    ocr_process = mp.Process(target=run_ocr_and_save_to_excel, args=(yesterday,))
+    ocr_process = mp.Process(target=run_ocr_and_save_to_html, args=(yesterday,))
     ocr_process.start()
     ocr_process.join()
 
@@ -339,7 +279,7 @@ def main():
     plate_process.start()
 
     # Schedule the OCR job to run daily at 00:01 AM
-    schedule.every().day.at("00:01").do(scheduled_job)
+    schedule.every().day.at("18:12").do(scheduled_job)
 
     # Run the scheduled jobs
     while True:
