@@ -26,23 +26,13 @@ logger = logging.getLogger(__name__)
 SHOW_LIVE = True
 PLATE_CONF_MIN = 0.65
 VEHICLE_CONF_MIN = 0.5
-VIDEO_SOURCE = "input_5.mkv"
+VIDEO_SOURCE = "./requirements/input_5.mkv"
 RESIZE_FACTOR = 2
 TIME_FORMAT = '%Y%m%d_%H%M%S.%f'
 OUTPUT_DIR = "number_plates"
 HTML_HEADERS = ["S. No.", "Object ID", "Time Stamp", "HSRP Detected", "Middle Conf.", "Second Last Conf.", "Middle OCR",
                 "Second Last OCR"]
 VEHICLE_CLASSES = {2, 3, 5, 7}
-
-# Email configuration
-sender_email = "your_email@example.com"
-to_emails = ["recipient1@example.com", "recipient2@example.com"]
-cc_emails = ["cc_recipient1@example.com", "cc_recipient2@example.com"]
-password = "your_password"
-subject = "Vehicle Detection Results"
-body = "Please find the attached HTML file with vehicle detection results."
-host = "smtp.gmail.com"
-port = 587
 
 # Initialize models
 try:
