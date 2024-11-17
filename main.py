@@ -14,9 +14,11 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
+from validate_number import validate_hsrp
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='vehicle_detection.log', filemode='w')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
+                    filename='vehicle_detection.log', filemode='w')
 logger = logging.getLogger(__name__)
 
 
@@ -27,6 +29,7 @@ def read_config(config_path='requirements/config.ini'):
         raise FileNotFoundError(f"Configuration file {config_path} not found!")
     config.read(config_path)
     return config
+
 
 config = read_config()
 SHOW_LIVE = config.getboolean('General', 'SHOW_LIVE')
@@ -56,12 +59,15 @@ except Exception as e:
     logger.error(f"Error initializing EasyOCR: {e}")
     raise
 
+
 def ensure_dir(directory):
     os.makedirs(directory, exist_ok=True)
     logger.debug(f"Ensured directory exists: {directory}")
 
+
 def get_date_folder():
     return datetime.now().strftime('%Y-%m-%d')
+
 
 def get_output_dirs():
     date_folder = get_date_folder()
@@ -69,6 +75,7 @@ def get_output_dirs():
     plates_dir = os.path.join(output_dir, "plates")
     frames_dir = os.path.join(output_dir, "frames")
     return output_dir, plates_dir, frames_dir
+
 
 def recognize_plate(plate_img):
     try:
@@ -80,10 +87,12 @@ def recognize_plate(plate_img):
         logger.error(f"Error in plate recognition: {e}")
         return None, None
 
+
 def save_image(directory, filename, image):
     ensure_dir(directory)
     cv2.imwrite(os.path.join(directory, filename), image)
     logger.debug(f"Saved image: {os.path.join(directory, filename)}")
+
 
 def get_plate(photo, obj_id):
     timestamp = datetime.now().strftime(TIME_FORMAT)
@@ -98,6 +107,7 @@ def get_plate(photo, obj_id):
                 return timestamp
     logger.debug(f"No plate detected for object {obj_id}")
     return timestamp
+
 
 def process_frame(frame, result):
     timestamp = datetime.now().strftime(TIME_FORMAT)
@@ -114,6 +124,7 @@ def process_frame(frame, result):
             logger.warning(f"Skipping object due to unexpected data format: {obj}")
             continue
 
+
 def vehicle_detection(frame_queue, result_queue):
     logger.info("Starting vehicle detection process")
     for result in vehicle_model.track(source=VIDEO_SOURCE, conf=VEHICLE_CONF_MIN, stream=True, show=SHOW_LIVE):
@@ -121,6 +132,7 @@ def vehicle_detection(frame_queue, result_queue):
             frame_queue.put((result.orig_img, result))
         if not result_queue.empty():
             result_queue.get()
+
 
 def plate_detection(frame_queue, result_queue):
     logger.info("Starting plate detection process")
@@ -130,6 +142,7 @@ def plate_detection(frame_queue, result_queue):
             break
         process_frame(frame, result)
         result_queue.put(result)
+
 
 def create_html_table(data, output_file):
     html_content = """
@@ -166,6 +179,7 @@ def create_html_table(data, output_file):
     with open(output_file, 'w') as f:
         f.write(html_content)
     logger.info(f"HTML file created: {output_file}")
+
 
 def send_email_with_attachment(config, filename):
     sender_email = config.get('Email', 'SENDER_EMAIL')
@@ -230,6 +244,7 @@ def send_email_with_attachment(config, filename):
 
     logger.info('Email sending process completed')
 
+
 def run_ocr_and_save_to_html(date):
     logger.info(f"Starting OCR process for {date}")
     input_dir = os.path.join(OUTPUT_DIR, date)
@@ -254,7 +269,10 @@ def run_ocr_and_save_to_html(date):
                 image_path = os.path.join(obj_dir, image_file)
                 plate_img = cv2.imread(image_path)
                 text, confidence = recognize_plate(plate_img)
-                results.append((text, confidence, image_file))
+                if validate_hsrp(text) is True:
+                    results.append((text, confidence, image_file))
+                else:
+                    logger.error('Not a valid HSRP Number.')
 
         if results:
             text1, confidence1, image_file1 = results[0] if len(results) > 0 else (None, None, None)
@@ -277,6 +295,7 @@ def run_ocr_and_save_to_html(date):
     send_email_with_attachment(config, output_file)
     logger.info(f"OCR process completed and results saved to HTML for {date}")
 
+
 def get_timestamp_from_filename(filename):
     tStamp = filename[0:13]
     pos_date = [4, 6]
@@ -287,11 +306,13 @@ def get_timestamp_from_filename(filename):
     tStamp = tStamp[:13] + ':' + tStamp[13:]
     return tStamp
 
+
 def scheduled_job():
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     ocr_process = mp.Process(target=run_ocr_and_save_to_html, args=(yesterday,))
     ocr_process.start()
     ocr_process.join()
+
 
 def main():
     logger.info("Starting main process")
@@ -312,6 +333,7 @@ def main():
     while True:
         schedule.run_pending()
         time.sleep(1)
+
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
