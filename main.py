@@ -254,25 +254,29 @@ def run_ocr_and_save_to_html(date):
     serial = 1
 
     for obj_id in os.listdir(plates_dir):
+        results = []
         obj_dir = os.path.join(plates_dir, obj_id)
         image_files = sorted(os.listdir(obj_dir))
-        indices_to_process = []
         if len(image_files) > 1:
-            middle_index = len(image_files) // 2
-            second_last_index = len(image_files) - 2
-            indices_to_process = [middle_index, second_last_index]
+            indices_to_process = list(range(len(image_files)))
+            first_half = indices_to_process[:len(indices_to_process) // 2]
+            second_half = indices_to_process[len(indices_to_process) // 2:]
+            final_indices = second_half + first_half[::-1]
 
-        results = []
-        for index in indices_to_process:
-            if index < len(image_files):
+            for index in final_indices:
                 image_file = image_files[index]
                 image_path = os.path.join(obj_dir, image_file)
                 plate_img = cv2.imread(image_path)
                 text, confidence = recognize_plate(plate_img)
-                if validate_hsrp(text) is True:
-                    results.append((text, confidence, image_file))
-                else:
-                    logger.error('Not a valid HSRP Number.')
+                # if text is not None:
+                #     if validate_hsrp(text) is True:
+                results.append((text, confidence, image_file))
+                #         break
+            if len(results) == 0:
+                logger.error('No plate was valid')
+
+        else:
+            logger.error('Object folder is empty')
 
         if results:
             text1, confidence1, image_file1 = results[0] if len(results) > 0 else (None, None, None)

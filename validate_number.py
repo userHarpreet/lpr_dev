@@ -109,15 +109,15 @@ def validate_bharat_series(plate_number):
 #     return True, "Valid Diplomatic series HSRP"
 
 
-def validate_and_format_plate(number):
-    """
-    Validate the license plate and format it if possible.
-    """
-    it_is_valid, msg = validate_hsrp(number)
-    if it_is_valid:
-        return number, msg
-    else:
-        return number, msg
+# def validate_and_format_plate(number):
+#     """
+#     Validate the license plate and format it if possible.
+#     """
+#     it_is_valid, msg = validate_hsrp(number)
+#     if it_is_valid:
+#         return number, msg
+#     else:
+#         return number, msg
 
 
 # Test the function
@@ -160,7 +160,7 @@ test_plates = [
 #     result, status = validate_and_format_plate(plate)
 #     print(f"Original: {plate}, Result: {result}, Status: {status}")
 
-
-for plate in test_plates:
-    is_valid, message = validate_and_format_plate(plate)
-    print(f"{plate}: {message}")
+#
+# for plate in test_plates:
+#     is_valid, message = validate_hsrp(plate)
+#     print(f"{plate}: {message}")
