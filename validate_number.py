@@ -12,10 +12,10 @@ dict_no_change = {'O': '0', 'I': '1'}
 plateChars = "0123456789ABCDEFGHJKLMNOPQRSTUVWXYZ"
 
 # Define the regular expression pattern for Indian vehicle registration plates
-plate_pattern = r'^[A-Z]{2}[0-9OI]{1,2}[ABCDEFGHJKLMNPQRSTUVWXYZ]{0,3}[0-9]{4}$'
+# plate_pattern = r'^[A-Z]{2}[01-99]{2}[ABCDEFGHJKLMNPQRSTUVWXYZ]{0,3}[0-9]{4}$'
 
 # Define valid state codes
-state_codes = (
+valid_state_codes = (
     "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DN", "DL", "GA", "GJ",
     "HP", "HR", "JH", "JK", "KA", "KL", "LA", "LD", "MH", "ML", "MN", "MP",
     "MZ", "NL", "OD", "OR", "PB", "PY", "RJ", "SK", "TG", "TS", "TN", "TR",
@@ -24,23 +24,17 @@ state_codes = (
 
 
 def validate_hsrp(plate_number):
-    # Regular expression pattern for HSRP
-    pattern = r'^([A-Z]{2}\s?[0-9]{1,2}\s?[A-Z]{1,3}\s?[0-9]{4})$|^([0-9]{2}\s?BH\s?[0-9]{4}\s?[A-Z]{1,2})$|^(([A-Z]{2}\s?VA\s?[A-Z]{2}\s?[0-9]{4})|([0-9]{3}\s?(CD|CC|UN)\s?[0-9]{1,4}))$'
-
-    # Check if the plate number matches the general pattern
-    if not re.match(pattern, plate_number):
-        return False, "Invalid format"
 
     # Remove spaces from the plate number
-    plate_number = plate_number.replace(" ", "")
+    plate_number = plate_number.replace(" ", "").upper()
 
     # Check for special series
-    if plate_number.startswith("VA"):
+    if "VA" == plate_number[2:4]:
         return validate_vintage_series(plate_number)
-    elif "BH" in plate_number:
+    elif "BH" == plate_number[2:4]:
         return validate_bharat_series(plate_number)
-    elif any(x in plate_number for x in ["CD", "CC", "UN"]):
-        return validate_diplomatic_series(plate_number)
+    # elif any(x in plate_number for x in ["CD", "CC", "UN"]):
+    #     return validate_diplomatic_series(plate_number)
 
     # Extract components for standard format
     state_code = plate_number[:2]
@@ -48,13 +42,6 @@ def validate_hsrp(plate_number):
     series = plate_number[4:-4]
     number = plate_number[-4:]
 
-    # Validate state code
-    valid_state_codes = [
-        "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "DN", "GA", "GJ",
-        "HP", "HR", "JH", "JK", "KA", "KL", "LA", "LD", "MH", "ML", "MN", "MP",
-        "MZ", "NL", "OD", "PB", "PY", "RJ", "SK", "TN", "TR", "TS", "UK", "UP",
-        "WB", "TG"
-    ]
     if state_code not in valid_state_codes:
         return False, "Invalid state code"
 
@@ -74,63 +61,68 @@ def validate_hsrp(plate_number):
 
 
 def validate_vintage_series(plate_number):
-    if not re.match(r'^[A-Z]{2}VA[A-Z]{2}[0-9]{4}$', plate_number):
-        return False, "Invalid Vintage series format"
+
+    # Extract components for standard format
+    state_code = plate_number[:2]
+    series = plate_number[4:-4]
+    number = plate_number[-4:]
+
+    if state_code not in valid_state_codes:
+        return False, "Invalid state code"
+
+    # Validate series (1 to 3 letters)
+    if not series.isalpha() or len(series) > 3 or 'O' in series or 'I' in series:
+        return False, "Invalid series"
+
+    # Validate number (should be 4 digits)
+    if not number.isdigit() or len(number) != 4:
+        return False, "Invalid number"
+
     return True, "Valid Vintage series HSRP"
 
 
 def validate_bharat_series(plate_number):
-    if not re.match(r'^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$', plate_number):
-        return False, "Invalid Bharat series format"
-    year = int(plate_number[:2])
+
+    # Extract components for standard format
+    reg_year = plate_number[:2]
+    number = plate_number[4:8]
+    series = plate_number[8:]
+
     current_year = datetime.now().year % 100
-    if year > current_year:
-        return False, "Invalid year in Bharat series"
+    if 21 > int(reg_year) or int(reg_year) > current_year:
+        return False, "Invalid registration year in BH Series"
+
+    # Validate number (should be 4 digits)
+    if not number.isdigit() or len(number) != 4:
+        return False, "Invalid number in BH Series"
+
+    # Validate series (1 to 3 letters)
+    if not series.isalpha() or len(series) > 3 or 'O' in series or 'I' in series:
+        return False, "Invalid series in BH Series"
+
     return True, "Valid Bharat series HSRP"
 
 
-def validate_diplomatic_series(plate_number):
-    if not re.match(r'^[0-9]{3}(CD|CC|UN)[0-9]{1,4}$', plate_number):
-        return False, "Invalid Diplomatic series format"
-    return True, "Valid Diplomatic series HSRP"
-
-
-def format_license_plate(text):
-    """
-    Format the license plate text by converting characters using the mapping dictionaries.
-    """
-    formatted_plate = ''
-    for i, char in enumerate(text):
-        if i < 2:
-            formatted_plate += char
-        elif char in dict_char_to_int:
-            formatted_plate += dict_char_to_int[char]
-        elif char in dict_int_to_char:
-            formatted_plate += dict_int_to_char[char]
-        else:
-            formatted_plate += char
-    return formatted_plate
+# def validate_diplomatic_series(plate_number):
+#     if not re.match(r'^[0-9]{3}(CD|CC|UN)[0-9]{1,4}$', plate_number):
+#         return False, "Invalid Diplomatic series format"
+#     return True, "Valid Diplomatic series HSRP"
 
 
 def validate_and_format_plate(number):
     """
     Validate the license plate and format it if possible.
     """
-    it_is_valid, _ = validate_hsrp(number)
+    it_is_valid, msg = validate_hsrp(number)
     if it_is_valid:
-        return number, "Valid"
+        return number, msg
     else:
-        formatted_plate = format_license_plate(number)
-        now_is_valid, _ = validate_hsrp(formatted_plate)
-        if now_is_valid:
-            return formatted_plate, "Formatted"
-        else:
-            return number, "Invalid"
+        return number, msg
 
 
 # Test the function
 test_plates = [
-    "DL01AB1234",  # Valid standard
+    "DL01VA1234",  # Valid standard
     "MH 02 CD 5678",  # Valid standard with spaces
     "KA03EF9012",  # Valid standard
     "UP 16 BH 3456",  # Valid standard (BH series)
