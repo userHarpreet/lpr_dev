@@ -25,9 +25,6 @@ valid_state_codes = (
 
 def validate_hsrp(plate_number):
 
-    # Remove spaces from the plate number
-    plate_number = plate_number.replace(" ", "").upper()
-
     # Check for special series
     if "VA" == plate_number[2:4]:
         return validate_vintage_series(plate_number)
@@ -153,7 +150,10 @@ test_plates = [
     "AP09MN6789",
     "WB10OP0123",
     "RJ14QR4567",
-    "HR0ZAB0123"
+    "HR0ZAB0123",
+    "PBO2DB7188",
+    "PB08C4505]",
+    "PBQBE48032"
 ]
 
 # for plate in test_plates:

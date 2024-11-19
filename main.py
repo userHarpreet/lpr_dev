@@ -15,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
 from validate_number import validate_hsrp
+from crop_images import crop_images_in_folder
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
@@ -247,57 +248,108 @@ def send_email_with_attachment(config, filename):
 
 def run_ocr_and_save_to_html(date):
     logger.info(f"Starting OCR process for {date}")
+
+    # Input validation
+    if not date:
+        logger.error("Date parameter is required")
+        return
+
     input_dir = os.path.join(OUTPUT_DIR, date)
     plates_dir = os.path.join(input_dir, "plates")
-    output_file = os.path.join(input_dir, f"index.html")
+    output_file = os.path.join(input_dir, "index.html")
+
+    # Validate directories exist
+    if not os.path.exists(plates_dir):
+        logger.error(f"Plates directory not found: {plates_dir}")
+        return
+    os.rename(plates_dir, f"{plates_dir}_org")
+    crop_images_in_folder(f"{plates_dir}_org", plates_dir)
+
     data = []
     serial = 1
 
-    for obj_id in os.listdir(plates_dir):
-        results = []
-        obj_dir = os.path.join(plates_dir, obj_id)
-        image_files = sorted(os.listdir(obj_dir))
-        if len(image_files) > 1:
-            indices_to_process = list(range(len(image_files)))
-            first_half = indices_to_process[:len(indices_to_process) // 2]
-            second_half = indices_to_process[len(indices_to_process) // 2:]
-            final_indices = second_half + first_half[::-1]
+    try:
+        for obj_id in os.listdir(plates_dir):
+            obj_dir = os.path.join(plates_dir, obj_id)
+            if not os.path.isdir(obj_dir):
+                continue
 
-            for index in final_indices:
-                image_file = image_files[index]
-                image_path = os.path.join(obj_dir, image_file)
-                plate_img = cv2.imread(image_path)
-                text, confidence = recognize_plate(plate_img)
-                # if text is not None:
-                #     if validate_hsrp(text) is True:
-                results.append((text, confidence, image_file))
-                #         break
-            if len(results) == 0:
-                logger.error('No plate was valid')
+            results = []
+            try:
+                image_files = sorted(os.listdir(obj_dir))
+            except OSError:
+                logger.error(f"Error reading directory: {obj_dir}")
+                continue
 
-        else:
-            logger.error('Object folder is empty')
+            if not image_files:
+                logger.error(f'Object folder is empty: {obj_dir}')
+                continue
 
-        if results:
-            text1, confidence1, image_file1 = results[0] if len(results) > 0 else (None, None, None)
-            text2, confidence2, image_file2 = results[1] if len(results) > 1 else (None, None, None)
-            tStamp = get_timestamp_from_filename(image_file1)
-            row = [
-                serial,
-                obj_id,
-                tStamp,
-                "Yes" if text1 or text2 else "No",
-                confidence1 if confidence1 is not None else "",
-                confidence2 if confidence2 is not None else "",
-                text1 if text1 is not None else "",
-                text2 if text2 is not None else ""
-            ]
-            data.append(row)
-            serial += 1
+            if len(image_files) > 1:
+                indices_to_process = list(range(len(image_files)))
+                first_half = indices_to_process[:len(indices_to_process) // 2]
+                second_half = indices_to_process[len(indices_to_process) // 2:]
+                final_indices = second_half + first_half[::-1]
 
-    create_html_table(data, output_file)
-    send_email_with_attachment(config, output_file)
-    logger.info(f"OCR process completed and results saved to HTML for {date}")
+                for index in final_indices:
+                    try:
+                        image_file = image_files[index]
+                        image_path = os.path.join(obj_dir, image_file)
+                        plate_img = cv2.imread(image_path)
+
+                        if plate_img is None:
+                            logger.error(f"Failed to load image: {image_path}")
+                            continue
+
+                        text, confidence = recognize_plate(plate_img)
+
+                        # Remove spaces from the plate number and change to all CAPS
+                        text = text.replace(" ", "").upper()
+
+                        is_valid, message = validate_hsrp(text)
+
+                        if text is not None and is_valid:
+                            results.append((text, confidence, image_file))
+                            break
+                        else:
+                            print(f"AllData - Text: {text}, Conf: {confidence}, File: {image_file}, Status:{is_valid}, MSG:{message}")
+                            logger.info(f"Text: {text}, Conf: {confidence}, File: {image_file}, Status:{is_valid}, MSG:{message}")
+
+                    except Exception as e:
+                        logger.error(f"Error processing image: {str(e)}")
+                        continue
+
+            # Process results and append to data
+            text1, confidence1, image_file1 = (None, None, None)
+            text2, confidence2, image_file2 = (None, None, None)
+
+            if results:
+                text1, confidence1, image_file1 = results[0]
+                if len(results) > 1:
+                    text2, confidence2, image_file2 = results[1]
+
+                tStamp = get_timestamp_from_filename(image_file1)
+                row = [
+                    serial,
+                    obj_id,
+                    tStamp,
+                    "Yes" if text1 or text2 else "No",
+                    confidence1 if confidence1 is not None else "",
+                    text1 if text1 is not None else ""
+                ]
+                data.append(row)
+                serial += 1
+            else:
+                logger.error(f'No valid plate found for object: {obj_id}')
+
+        # Save to HTML (missing implementation)
+        create_html_table(data, output_file)
+        send_email_with_attachment(config, output_file)
+        logger.info(f"OCR process completed and results saved to HTML for {date}")
+
+    except Exception as e:
+        logger.error(f"Error in OCR process: {str(e)}")
+        raise
 
 
 def get_timestamp_from_filename(filename):
