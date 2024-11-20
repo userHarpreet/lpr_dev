@@ -26,7 +26,7 @@ def crop_images_in_folder(input_folder, output_folder):
 
                 # Crop image (left, top, right, bottom)
                 cropped_img = img.crop((crop_width, 0, width, height))
-                print(f"Cropping: Lose:{crop_width}, Actual width: {width}")
+                # print(f"Cropping: Lose:{crop_width}, Actual width: {width}")
 
                 # Determine relative path to output folder
                 relative_path = os.path.relpath(root, input_folder)

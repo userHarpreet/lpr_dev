@@ -310,9 +310,12 @@ def run_ocr_and_save_to_html(date):
 
                         logger.info(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_file}, "
                                     f"Status:{is_valid}, MSG:{message}")
-                        if text is not None and is_valid:
-                            results.append((text, confidence, image_file))
-                            break
+                        if text is not None:
+                            if is_valid:
+                                results.append((text, confidence, image_file))
+                                break
+                            elif index == final_indices:
+                                results.append(("", 0, image_file))
 
                     except Exception as e:
                         logger.error(f"Error processing image: {str(e)}")
@@ -321,28 +324,28 @@ def run_ocr_and_save_to_html(date):
             # Process results
 
             if results:
-                text1, confidence1, image_file1 = results[0]
+                text_captured, confidence_captured, image_file_captured = results[0]
 
-                confidence1 = round(confidence1, 2)
+                confidence_captured = round(confidence_captured, 2)
 
-                tStamp = get_timestamp_from_filename(image_file1)
+                tStamp = get_timestamp_from_filename(image_file_captured)
                 row = [
                     serial,
                     obj_id,
                     tStamp,
-                    "Yes" if text1 else "No",
-                    confidence1 if confidence1 is not None else "",
-                    text1 if text1 is not None else ""
+                    "Yes" if text_captured else "No",
+                    confidence_captured if confidence_captured is not None else "",
+                    text_captured if text_captured is not None else ""
                 ]
                 data.append(row)
                 serial += 1
             else:
                 logger.error(f'No valid plate found for object: {obj_id}')
 
-        data.sort(key=lambda x: x[obj_id])
+        sorted_data = sorted(data, key=lambda x: int(x[1]))
 
         # Save to HTML (missing implementation)
-        create_html_table(data, output_file)
+        create_html_table(sorted_data, output_file)
         send_email_with_attachment(config, output_file)
         logger.info(f"OCR process completed and results saved to HTML for {date}")
 
