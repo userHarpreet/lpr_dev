@@ -46,6 +46,6 @@ def crop_images_in_folder(input_folder, output_folder):
 
 
 # Example usage
-input_folder = "./output_dir/2024-11-18/plates"
-output_folder = "./output_dir/2024-11-18/plates_new"
-crop_images_in_folder(input_folder, output_folder)
+# input_folder = "./output_dir/2024-11-18/plates"
+# output_folder = "./output_dir/2024-11-18/plates_new"
+# crop_images_in_folder(input_folder, output_folder)

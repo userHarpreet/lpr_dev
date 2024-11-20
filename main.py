@@ -19,7 +19,7 @@ from crop_images import crop_images_in_folder
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
-                    filename='vehicle_detection.log', filemode='w')
+                    filename='lpr_dev.log', filemode='a')
 logger = logging.getLogger(__name__)
 
 
@@ -308,32 +308,29 @@ def run_ocr_and_save_to_html(date):
 
                         is_valid, message = validate_hsrp(text)
 
+                        logger.info(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_file}, "
+                                    f"Status:{is_valid}, MSG:{message}")
                         if text is not None and is_valid:
                             results.append((text, confidence, image_file))
                             break
-                        else:
-                            print(f"AllData - Text: {text}, Conf: {confidence}, File: {image_file}, Status:{is_valid}, MSG:{message}")
-                            logger.info(f"Text: {text}, Conf: {confidence}, File: {image_file}, Status:{is_valid}, MSG:{message}")
 
                     except Exception as e:
                         logger.error(f"Error processing image: {str(e)}")
                         continue
 
-            # Process results and append to data
-            text1, confidence1, image_file1 = (None, None, None)
-            text2, confidence2, image_file2 = (None, None, None)
+            # Process results
 
             if results:
                 text1, confidence1, image_file1 = results[0]
-                if len(results) > 1:
-                    text2, confidence2, image_file2 = results[1]
+
+                confidence1 = round(confidence1, 2)
 
                 tStamp = get_timestamp_from_filename(image_file1)
                 row = [
                     serial,
                     obj_id,
                     tStamp,
-                    "Yes" if text1 or text2 else "No",
+                    "Yes" if text1 else "No",
                     confidence1 if confidence1 is not None else "",
                     text1 if text1 is not None else ""
                 ]
@@ -341,6 +338,8 @@ def run_ocr_and_save_to_html(date):
                 serial += 1
             else:
                 logger.error(f'No valid plate found for object: {obj_id}')
+
+        data.sort(key=lambda x: x[obj_id])
 
         # Save to HTML (missing implementation)
         create_html_table(data, output_file)
