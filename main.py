@@ -146,6 +146,7 @@ def plate_detection(frame_queue, result_queue):
 
 
 def create_html_table(data, output_file):
+    serial = 1
     html_content = """
     <!DOCTYPE html>
     <html lang="en">
@@ -169,9 +170,11 @@ def create_html_table(data, output_file):
     html_content += "</tr>"
     for row in data:
         html_content += "<tr>"
+        html_content += f"<td>{serial}</td>"
         for cell in row:
             html_content += f"<td>{cell}</td>"
         html_content += "</tr>"
+        serial += 1
     html_content += """
         </table>
     </body>
@@ -180,6 +183,7 @@ def create_html_table(data, output_file):
     with open(output_file, 'w') as f:
         f.write(html_content)
     logger.info(f"HTML file created: {output_file}")
+    print(f"HTML file created: {output_file}")
 
 
 def send_email_with_attachment(config, filename):
@@ -244,6 +248,7 @@ def send_email_with_attachment(config, filename):
         raise
 
     logger.info('Email sending process completed')
+    print('Email sending process completed')
 
 
 def run_ocr_and_save_to_html(date):
@@ -266,7 +271,6 @@ def run_ocr_and_save_to_html(date):
     crop_images_in_folder(f"{plates_dir}_org", plates_dir)
 
     data = []
-    serial = 1
 
     try:
         for obj_id in os.listdir(plates_dir):
@@ -275,6 +279,7 @@ def run_ocr_and_save_to_html(date):
                 continue
 
             results = []
+            result_appended = False
             try:
                 image_files = sorted(os.listdir(obj_dir))
             except OSError:
@@ -290,6 +295,8 @@ def run_ocr_and_save_to_html(date):
                 first_half = indices_to_process[:len(indices_to_process) // 2]
                 second_half = indices_to_process[len(indices_to_process) // 2:]
                 final_indices = second_half + first_half[::-1]
+
+                image_file = ""
 
                 for index in final_indices:
                     try:
@@ -308,41 +315,41 @@ def run_ocr_and_save_to_html(date):
 
                         is_valid, message = validate_hsrp(text)
 
-                        logger.info(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_file}, "
+                        logger.info(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_path}, "
                                     f"Status:{is_valid}, MSG:{message}")
                         if text is not None:
                             if is_valid:
-                                results.append((text, confidence, image_file))
+                                results.append((text, confidence, image_file, image_path))
+                                result_appended = True
                                 break
-                            elif index == final_indices:
-                                results.append(("", 0, image_file))
 
                     except Exception as e:
                         logger.error(f"Error processing image: {str(e)}")
                         continue
+                if not result_appended:
+                    results.append(("", 0, image_file, ""))
 
             # Process results
 
             if results:
-                text_captured, confidence_captured, image_file_captured = results[0]
+                text_captured, confidence_captured, image_file_captured, image_file_path = results[0]
 
                 confidence_captured = round(confidence_captured, 2)
 
                 tStamp = get_timestamp_from_filename(image_file_captured)
                 row = [
-                    serial,
                     obj_id,
                     tStamp,
                     "Yes" if text_captured else "No",
+                    image_file_path if image_file_path is not None else "",
                     confidence_captured if confidence_captured is not None else "",
                     text_captured if text_captured is not None else ""
                 ]
                 data.append(row)
-                serial += 1
             else:
                 logger.error(f'No valid plate found for object: {obj_id}')
 
-        sorted_data = sorted(data, key=lambda x: int(x[1]))
+        sorted_data = sorted(data, key=lambda x: int(x[0]))
 
         # Save to HTML (missing implementation)
         create_html_table(sorted_data, output_file)
@@ -355,14 +362,17 @@ def run_ocr_and_save_to_html(date):
 
 
 def get_timestamp_from_filename(filename):
-    tStamp = filename[0:13]
-    pos_date = [4, 6]
-    pos_date.sort()
-    for i, pos in enumerate(pos_date):
-        tStamp = tStamp[:pos + i] + '/' + tStamp[pos + i:]
-    tStamp = tStamp.replace("_", " ")
-    tStamp = tStamp[:13] + ':' + tStamp[13:]
-    return tStamp
+    if filename is not "":
+        tStamp = filename[0:13]
+        pos_date = [4, 6]
+        pos_date.sort()
+        for i, pos in enumerate(pos_date):
+            tStamp = tStamp[:pos + i] + '/' + tStamp[pos + i:]
+        tStamp = tStamp.replace("_", " ")
+        tStamp = tStamp[:13] + ':' + tStamp[13:]
+        return tStamp
+    else:
+        return ""
 
 
 def scheduled_job():
