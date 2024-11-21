@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 def read_config(config_path='requirements/config.ini'):
-    config = configparser.ConfigParser()
+    configration = configparser.ConfigParser()
     if not os.path.exists(config_path):
         logger.error(f"Configuration file {config_path} not found!")
         raise FileNotFoundError(f"Configuration file {config_path} not found!")
-    config.read(config_path)
-    return config
+    configration.read(config_path)
+    return configration
 
 
 config = read_config()
@@ -37,7 +37,6 @@ SHOW_LIVE = config.getboolean('General', 'SHOW_LIVE')
 PLATE_CONF_MIN = config.getfloat('General', 'PLATE_CONF_MIN')
 VEHICLE_CONF_MIN = config.getfloat('General', 'VEHICLE_CONF_MIN')
 VIDEO_SOURCE = config.get('General', 'VIDEO_SOURCE')
-RESIZE_FACTOR = config.getint('General', 'RESIZE_FACTOR')
 TIME_FORMAT = config.get('General', 'TIME_FORMAT')
 OUTPUT_DIR = config.get('General', 'OUTPUT_DIR')
 VEHICLE_CLASSES = [int(cls) for cls in config.get('General', 'VEHICLE_CLASSES').split(',')]
@@ -91,7 +90,8 @@ def recognize_plate(plate_img):
 
 def save_image(directory, filename, image):
     ensure_dir(directory)
-    cv2.imwrite(os.path.join(directory, filename), image)
+    save_to_file = os.path.join(directory, filename)
+    cv2.imwrite(save_to_file, image)
     logger.debug(f"Saved image: {os.path.join(directory, filename)}")
 
 
@@ -186,15 +186,15 @@ def create_html_table(data, output_file):
     print(f"HTML file created: {output_file}")
 
 
-def send_email_with_attachment(config, filename):
-    sender_email = config.get('Email', 'SENDER_EMAIL')
-    to_emails = config.get('Email', 'TO_EMAILS').split(',')
-    cc_emails = config.get('Email', 'CC_EMAILS').split(',') if config.get('Email', 'CC_EMAILS') else []
-    password = config.get('Email', 'PASSWORD')
-    subject = config.get('Email', 'SUBJECT')
-    body = config.get('Email', 'BODY')
-    smtp_server = config.get('SMTP', 'HOST')
-    smtp_port = config.getint('SMTP', 'PORT')
+def send_email_with_attachment(configration, filename):
+    sender_email = configration.get('Email', 'SENDER_EMAIL')
+    to_emails = configration.get('Email', 'TO_EMAILS').split(',')
+    cc_emails = configration.get('Email', 'CC_EMAILS').split(',') if configration.get('Email', 'CC_EMAILS') else []
+    password = configration.get('Email', 'PASSWORD')
+    subject = configration.get('Email', 'SUBJECT')
+    body = configration.get('Email', 'BODY')
+    smtp_server = configration.get('SMTP', 'HOST')
+    smtp_port = configration.getint('SMTP', 'PORT')
 
     logger.info('Preparing to send email...')
     logger.info('Sender: %s', sender_email)
@@ -362,7 +362,7 @@ def run_ocr_and_save_to_html(date):
 
 
 def get_timestamp_from_filename(filename):
-    if filename is not "":
+    if filename != "":
         tStamp = filename[0:13]
         pos_date = [4, 6]
         pos_date.sort()
