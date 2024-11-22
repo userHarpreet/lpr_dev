@@ -119,6 +119,7 @@ def process_frame(frame, result):
             if int(obj_class) in VEHICLE_CLASSES:
                 vehicle = frame[int(y1):int(y2), int(x1):int(x2)]
                 timestamp = get_plate(vehicle, int(obj_id))
+                
                 save_image(os.path.join(frames_dir, str(int(obj_id))), f"{timestamp}.jpg", vehicle)
                 logger.info(f"Processed frame for object {int(obj_id)} at {timestamp}")
         except ValueError as e:
@@ -332,7 +333,12 @@ def run_ocr_and_save_to_html(date):
             # Process results
 
             if results:
-                text_captured, confidence_captured, image_file_captured, image_file_path = results[0]
+
+                conf_array = [row[1] for row in results]
+                int_array = [int(x) for x in conf_array]
+                index_max = int_array.index(max(int_array))
+
+                text_captured, confidence_captured, image_file_captured, image_file_path = results[index_max]
 
                 confidence_captured = round(confidence_captured, 2)
 
