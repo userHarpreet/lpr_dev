@@ -146,7 +146,7 @@ def plate_detection(frame_queue, result_queue):
         result_queue.put(result)
 
 
-def create_html_table(data, output_file):
+def create_html_table(data, output_file, t_detect, t_read):
     serial = 1
     html_content = """
     <!DOCTYPE html>
@@ -162,10 +162,10 @@ def create_html_table(data, output_file):
         </style>
     </head>
     <body>
-        <h1>Vehicle Detection Results</h1>
-        <table>
-            <tr>
-    """
+        <h1>Vehicle Detection Results</h1>"""
+    html_content+= (f"<h2>Total Detections:{t_detect - 1}, Total OCR Output:{t_read - 1}</h2>"
+                    f"<table>"
+                    f"<tr>")
     for header in HTML_HEADERS:
         html_content += f"<th>{header}</th>"
     html_content += "</tr>"
@@ -272,6 +272,8 @@ def run_ocr_and_save_to_html(date):
     crop_images_in_folder(f"{plates_dir}_org", plates_dir)
 
     data = []
+    total_not_read = 0
+    total_detections = len(os.listdir(plates_dir))
 
     try:
         for obj_id in os.listdir(plates_dir):
@@ -328,6 +330,7 @@ def run_ocr_and_save_to_html(date):
                         continue
                 if not result_appended:
                     results.append(("", 0, image_file, ""))
+                    total_not_read += 1
 
             # Process results
 
@@ -357,7 +360,7 @@ def run_ocr_and_save_to_html(date):
         sorted_data = sorted(data, key=lambda x: int(x[0]))
 
         # Save to HTML (missing implementation)
-        create_html_table(sorted_data, output_file)
+        create_html_table(sorted_data, output_file, total_detections, total_detections - total_not_read)
         send_email_with_attachment(config, output_file)
         logger.info(f"OCR process completed and results saved to HTML for {date}")
 
