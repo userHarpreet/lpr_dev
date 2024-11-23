@@ -83,15 +83,15 @@ def recognize_plate(plate_img):
         if ocr_result:
             return ocr_result[0][1], ocr_result[0][2]  # text and confidence
         return None, None
-    except Exception as e:
-        logger.error(f"Error in plate recognition: {e}")
+    except Exception as ex:
+        logger.error(f"Error in plate recognition: {ex}")
         return None, None
 
 
 def save_image(directory, filename, image):
     ensure_dir(directory)
     save_to_file = os.path.join(directory, filename)
-    cv2.imwrite(save_to_file, image)
+    cv2.imwrite(str(save_to_file), image)
     logger.debug(f"Saved image: {os.path.join(directory, filename)}")
 
 
@@ -111,7 +111,6 @@ def get_plate(photo, obj_id):
 
 
 def process_frame(frame, result):
-    timestamp = datetime.now().strftime(TIME_FORMAT)
     _, plates_dir, frames_dir = get_output_dirs()
     for obj in result.boxes.data.tolist():
         try:
@@ -122,7 +121,7 @@ def process_frame(frame, result):
                 
                 save_image(os.path.join(frames_dir, str(int(obj_id))), f"{timestamp}.jpg", vehicle)
                 logger.info(f"Processed frame for object {int(obj_id)} at {timestamp}")
-        except ValueError as e:
+        except ValueError:
             logger.warning(f"Skipping object due to unexpected data format: {obj}")
             continue
 
@@ -170,11 +169,25 @@ def create_html_table(data, output_file, t_detect, t_read):
         html_content += f"<th>{header}</th>"
     html_content += "</tr>"
     for row in data:
+        # html_content += "<tr>"
+        # html_content += f"<td>{serial}</td>"
+        # for cell in row:
+        #     html_content += f"<td>{cell}</td>"
+        # html_content += "</tr>"
+
         html_content += "<tr>"
         html_content += f"<td>{serial}</td>"
-        for cell in row:
-            html_content += f"<td>{cell}</td>"
+        for i, cell in enumerate(row):
+            # Check if this is the column containing the image path
+            if i == 3:  # Assuming the image path is in the 4th column (index 3)
+                if cell != "":
+                    html_content += f'<td><img src=".{cell[21:]}" alt="Image"></td>'
+                else:
+                    html_content += f"<td>{cell}</td>"
+            else:
+                html_content += f"<td>{cell}</td>"
         html_content += "</tr>"
+
         serial += 1
     html_content += """
         </table>
@@ -217,8 +230,8 @@ def send_email_with_attachment(configration, filename):
             part = MIMEBase("application", "octet-stream")
             part.set_payload(attachment.read())
             logger.debug('File %s read successfully', filename)
-    except IOError as e:
-        logger.error('Failed to read attachment file: %s', e)
+    except IOError as ex:
+        logger.error('Failed to read attachment file: %s', ex)
         raise
 
     encoders.encode_base64(part)
@@ -244,8 +257,8 @@ def send_email_with_attachment(configration, filename):
             logger.info('Logged in successfully')
             server.sendmail(sender_email, all_recipients, text)
             logger.info('Email sent successfully!')
-    except smtplib.SMTPException as e:
-        logger.error('An error occurred while sending the email: %s', e)
+    except smtplib.SMTPException as ex:
+        logger.error('An error occurred while sending the email: %s', ex)
         raise
 
     logger.info('Email sending process completed')
@@ -325,11 +338,11 @@ def run_ocr_and_save_to_html(date):
                                 results.append((text, confidence, image_file, image_path))
                                 result_appended = True
 
-                    except Exception as e:
-                        logger.error(f"Error processing image: {str(e)}")
+                    except Exception as ex:
+                        logger.error(f"Error processing image: {str(ex)}")
                         continue
                 if not result_appended:
-                    results.append(("", 0, image_file, ""))
+                    results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]])))
                     total_not_read += 1
 
             # Process results
@@ -361,11 +374,11 @@ def run_ocr_and_save_to_html(date):
 
         # Save to HTML (missing implementation)
         create_html_table(sorted_data, output_file, total_detections, total_detections - total_not_read)
-        send_email_with_attachment(config, output_file)
+        # send_email_with_attachment(config, output_file)
         logger.info(f"OCR process completed and results saved to HTML for {date}")
 
-    except Exception as e:
-        logger.error(f"Error in OCR process: {str(e)}")
+    except Exception as ex:
+        logger.error(f"Error in OCR process: {str(ex)}")
         raise
 
 
