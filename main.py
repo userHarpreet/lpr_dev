@@ -322,7 +322,6 @@ def run_ocr_and_save_to_html(date):
                             if is_valid:
                                 results.append((text, confidence, image_file, image_path))
                                 result_appended = True
-                                break
 
                     except Exception as e:
                         logger.error(f"Error processing image: {str(e)}")
@@ -335,8 +334,8 @@ def run_ocr_and_save_to_html(date):
             if results:
 
                 conf_array = [row[1] for row in results]
-                int_array = [int(x) for x in conf_array]
-                index_max = int_array.index(max(int_array))
+                float_array = [float(x) for x in conf_array]
+                index_max = float_array.index(max(float_array))
 
                 text_captured, confidence_captured, image_file_captured, image_file_path = results[index_max]
 
