@@ -14,6 +14,8 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
+
+from process_image import enhance_plate
 from validate_number import validate_hsrp
 from crop_images import crop_images_in_folder
 
@@ -78,6 +80,7 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
+    plate_img = enhance_plate(plate_img)
     try:
         ocr_result = reader.readtext(plate_img)
         if ocr_result:
