@@ -80,7 +80,7 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
-    plate_img = enhance_plate(plate_img)
+    # plate_img = enhance_plate(plate_img)
     try:
         ocr_result = reader.readtext(plate_img)
         if ocr_result:
@@ -327,6 +327,7 @@ def run_ocr_and_save_to_html(date):
                             logger.error(f"Failed to load image: {image_path}")
                             continue
 
+                        plate_img = enhance_plate(plate_img)
                         text, confidence = recognize_plate(plate_img)
 
                         # Remove spaces from the plate number and change to all CAPS
@@ -338,14 +339,15 @@ def run_ocr_and_save_to_html(date):
                                     f"Status:{is_valid}, MSG:{message}")
                         if text is not None:
                             if is_valid:
-                                results.append((text, confidence, image_file, image_path))
+                                results.append((text, confidence, image_file, image_path, plate_img))
                                 result_appended = True
 
                     except Exception as ex:
                         logger.error(f"Error processing image: {str(ex)}")
                         continue
                 if not result_appended:
-                    results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]])))
+                    results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]],
+                                    enhance_plate(cv2.imread(os.path.join(obj_dir, image_files[second_half[0]]))))))
                     total_not_read += 1
 
             # Process results
@@ -356,7 +358,7 @@ def run_ocr_and_save_to_html(date):
                 float_array = [float(x) for x in conf_array]
                 index_max = float_array.index(max(float_array))
 
-                text_captured, confidence_captured, image_file_captured, image_file_path = results[index_max]
+                text_captured, confidence_captured, image_file_captured, image_file_path, processed_img = results[index_max]
 
                 confidence_captured = round(confidence_captured, 2)
 
@@ -366,6 +368,7 @@ def run_ocr_and_save_to_html(date):
                     tStamp,
                     "Yes" if text_captured else "No",
                     image_file_path if image_file_path is not None else "",
+                    processed_img,
                     confidence_captured if confidence_captured is not None else "",
                     text_captured if text_captured is not None else ""
                 ]

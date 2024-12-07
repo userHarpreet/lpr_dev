@@ -41,23 +41,25 @@ def enhance_plate(imgx):
     # Get image dimensions
     high, wide, *_ = imgx.shape
     # Resizing the number plate
-    img = resize_plate(imgx, wide, high, RESIZE_FACTOR)
-    # cv2.imshow("Plate", img)
+    resized_img = resize_plate(imgx, wide, high, RESIZE_FACTOR)
     # Grayscale image
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    # cv2.imshow("Grayed", img)
+    grayed_img = cv2.cvtColor(resized_img, cv2.COLOR_RGB2GRAY)
     # Blurred image
-    img = cv2.GaussianBlur(img, (7, 7), 0)
-    # cv2.imshow("Blurred", img)
-    # Threshold image
-    _, img = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # cv2.imshow("Threshold", img)
-    img = cv2.erode(img, (3, 3))
-    # cv2.imshow("Eroded", img)
-    img = cv2.dilate(img, (3, 3))
-    # cv2.imshow("Dilated", img)
+    blurred_img = cv2.GaussianBlur(grayed_img, (7, 7), 0)
+    # Binary image
+    _, binary_img = cv2.threshold(blurred_img, 200, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    eroded_img = cv2.erode(binary_img, (3, 3))
+    dilated_img = cv2.dilate(eroded_img, (3, 3))
+
+    # cv2.imshow("Plate", imgx)
+    # cv2.imshow("Resized", resized_img)
+    # cv2.imshow("Grayed", grayed_img)
+    # cv2.imshow("Blurred", blurred_img)
+    # cv2.imshow("Binary", binary_img)
+    # cv2.imshow("Eroded", eroded_img)
+    # cv2.imshow("Dilated", dilated_img)
     # cv2.waitKey(1)
-    return img
+    return dilated_img
 
 
 # Example usage
