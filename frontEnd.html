@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LPR Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        input[type="date"] {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        button {
+            margin-top: 15px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .popup {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            animation: slideIn 0.5s ease-in-out;
+            z-index: 1000;
+        }
+
+        .error {
+            background-color: #ff4444;
+        }
+
+        .success {
+            background-color: #4CAF50;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .checkbox-container {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LPR Dashboard</h1>
+        <h2>Select a Date</h2>
+        <input type="date" id="datePicker">
+        <div class="checkbox-container">
+            <input type="checkbox" id="newTab" checked>
+            <label for="newTab">Open in new tab</label>
+        </div>
+        <button id="goButton" onclick="navigateToUrl()">OK</button>
+    </div>
+
+    <div id="popup" class="popup"></div>
+
+    <script>
+        // Set default date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('datePicker').value = today;
+
+        function showPopup(message, type) {
+            const popup = document.getElementById('popup');
+            popup.textContent = message;
+            popup.className = `popup ${type}`;
+            popup.style.display = 'block';
+
+            setTimeout(() => {
+                popup.style.display = 'none';
+            }, 3000);
+        }
+
+        function validateDate(date) {
+            if (!date) {
+                throw new Error('Please select a date');
+            }
+
+            const selectedDate = new Date(date);
+            const currentDate = new Date();
+            currentDate.setHours(0, 0, 0, 0);
+
+            if (selectedDate < currentDate) {
+                throw new Error('Please select a future date');
+            }
+
+            const maxDate = new Date();
+            maxDate.setFullYear(maxDate.getFullYear() + 1);
+            if (selectedDate > maxDate) {
+                throw new Error('Date cannot be more than 1 year in the future');
+            }
+        }
+
+        function navigateToUrl() {
+            try {
+                const selectedDate = document.getElementById('datePicker').value;
+                validateDate(selectedDate);
+
+                //const baseUrl = 'https://example.com/posts/';
+                //const formattedUrl = baseUrl + selectedDate;
+                const formattedUrl = 'http://192.168.150.57/';
+                const openInNewTab = document.getElementById('newTab').checked;
+
+                showPopup('Opening link...', 'success');
+
+                setTimeout(() => {
+                    if (openInNewTab) {
+                        window.open(formattedUrl, '_blank');
+                    } else {
+                        window.location.href = formattedUrl;
+                    }
+                }, 1000);
+
+            } catch (error) {
+                showPopup(error.message, 'error');
+                console.error('Navigation error:', error);
+            }
+        }
+
+        document.getElementById('datePicker').addEventListener('change', function() {
+            try {
+                validateDate(this.value);
+                document.getElementById('goButton').disabled = false;
+            } catch (error) {
+                showPopup(error.message, 'error');
+                document.getElementById('goButton').disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>

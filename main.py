@@ -14,6 +14,8 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
+
+from process_image import enhance_plate
 from validate_number import validate_hsrp
 from crop_images import crop_images_in_folder
 
@@ -78,20 +80,21 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
+    # plate_img = enhance_plate(plate_img)
     try:
         ocr_result = reader.readtext(plate_img)
         if ocr_result:
             return ocr_result[0][1], ocr_result[0][2]  # text and confidence
         return None, None
-    except Exception as e:
-        logger.error(f"Error in plate recognition: {e}")
+    except Exception as ex:
+        logger.error(f"Error in plate recognition: {ex}")
         return None, None
 
 
 def save_image(directory, filename, image):
     ensure_dir(directory)
     save_to_file = os.path.join(directory, filename)
-    cv2.imwrite(save_to_file, image)
+    cv2.imwrite(str(save_to_file), image)
     logger.debug(f"Saved image: {os.path.join(directory, filename)}")
 
 
@@ -111,7 +114,6 @@ def get_plate(photo, obj_id):
 
 
 def process_frame(frame, result):
-    timestamp = datetime.now().strftime(TIME_FORMAT)
     _, plates_dir, frames_dir = get_output_dirs()
     for obj in result.boxes.data.tolist():
         try:
@@ -122,7 +124,7 @@ def process_frame(frame, result):
                 
                 save_image(os.path.join(frames_dir, str(int(obj_id))), f"{timestamp}.jpg", vehicle)
                 logger.info(f"Processed frame for object {int(obj_id)} at {timestamp}")
-        except ValueError as e:
+        except ValueError:
             logger.warning(f"Skipping object due to unexpected data format: {obj}")
             continue
 
@@ -146,7 +148,7 @@ def plate_detection(frame_queue, result_queue):
         result_queue.put(result)
 
 
-def create_html_table(data, output_file):
+def create_html_table(data, output_file, t_detect, t_read):
     serial = 1
     html_content = """
     <!DOCTYPE html>
@@ -162,19 +164,33 @@ def create_html_table(data, output_file):
         </style>
     </head>
     <body>
-        <h1>Vehicle Detection Results</h1>
-        <table>
-            <tr>
-    """
+        <h1>Vehicle Detection Results</h1>"""
+    html_content+= (f"<h2>Total Detections:{t_detect - 1}, Total OCR Output:{t_read - 1}</h2>"
+                    f"<table>"
+                    f"<tr>")
     for header in HTML_HEADERS:
         html_content += f"<th>{header}</th>"
     html_content += "</tr>"
     for row in data:
+        # html_content += "<tr>"
+        # html_content += f"<td>{serial}</td>"
+        # for cell in row:
+        #     html_content += f"<td>{cell}</td>"
+        # html_content += "</tr>"
+
         html_content += "<tr>"
         html_content += f"<td>{serial}</td>"
-        for cell in row:
-            html_content += f"<td>{cell}</td>"
+        for i, cell in enumerate(row):
+            # Check if this is the column containing the image path
+            if i == 3:  # Assuming the image path is in the 4th column (index 3)
+                if cell != "":
+                    html_content += f'<td><img src=".{cell[21:]}" alt="Image"></td>'
+                else:
+                    html_content += f"<td>{cell}</td>"
+            else:
+                html_content += f"<td>{cell}</td>"
         html_content += "</tr>"
+
         serial += 1
     html_content += """
         </table>
@@ -217,8 +233,8 @@ def send_email_with_attachment(configration, filename):
             part = MIMEBase("application", "octet-stream")
             part.set_payload(attachment.read())
             logger.debug('File %s read successfully', filename)
-    except IOError as e:
-        logger.error('Failed to read attachment file: %s', e)
+    except IOError as ex:
+        logger.error('Failed to read attachment file: %s', ex)
         raise
 
     encoders.encode_base64(part)
@@ -244,8 +260,8 @@ def send_email_with_attachment(configration, filename):
             logger.info('Logged in successfully')
             server.sendmail(sender_email, all_recipients, text)
             logger.info('Email sent successfully!')
-    except smtplib.SMTPException as e:
-        logger.error('An error occurred while sending the email: %s', e)
+    except smtplib.SMTPException as ex:
+        logger.error('An error occurred while sending the email: %s', ex)
         raise
 
     logger.info('Email sending process completed')
@@ -272,6 +288,8 @@ def run_ocr_and_save_to_html(date):
     crop_images_in_folder(f"{plates_dir}_org", plates_dir)
 
     data = []
+    total_not_read = 0
+    total_detections = len(os.listdir(plates_dir))
 
     try:
         for obj_id in os.listdir(plates_dir):
@@ -309,6 +327,7 @@ def run_ocr_and_save_to_html(date):
                             logger.error(f"Failed to load image: {image_path}")
                             continue
 
+                        plate_img = enhance_plate(plate_img)
                         text, confidence = recognize_plate(plate_img)
 
                         # Remove spaces from the plate number and change to all CAPS
@@ -320,25 +339,26 @@ def run_ocr_and_save_to_html(date):
                                     f"Status:{is_valid}, MSG:{message}")
                         if text is not None:
                             if is_valid:
-                                results.append((text, confidence, image_file, image_path))
+                                results.append((text, confidence, image_file, image_path, plate_img))
                                 result_appended = True
-                                break
 
-                    except Exception as e:
-                        logger.error(f"Error processing image: {str(e)}")
+                    except Exception as ex:
+                        logger.error(f"Error processing image: {str(ex)}")
                         continue
                 if not result_appended:
-                    results.append(("", 0, image_file, ""))
+                    results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]],
+                                    enhance_plate(cv2.imread(os.path.join(obj_dir, image_files[second_half[0]]))))))
+                    total_not_read += 1
 
             # Process results
 
             if results:
 
                 conf_array = [row[1] for row in results]
-                int_array = [int(x) for x in conf_array]
-                index_max = int_array.index(max(int_array))
+                float_array = [float(x) for x in conf_array]
+                index_max = float_array.index(max(float_array))
 
-                text_captured, confidence_captured, image_file_captured, image_file_path = results[index_max]
+                text_captured, confidence_captured, image_file_captured, image_file_path, processed_img = results[index_max]
 
                 confidence_captured = round(confidence_captured, 2)
 
@@ -348,6 +368,7 @@ def run_ocr_and_save_to_html(date):
                     tStamp,
                     "Yes" if text_captured else "No",
                     image_file_path if image_file_path is not None else "",
+                    processed_img,
                     confidence_captured if confidence_captured is not None else "",
                     text_captured if text_captured is not None else ""
                 ]
@@ -358,12 +379,12 @@ def run_ocr_and_save_to_html(date):
         sorted_data = sorted(data, key=lambda x: int(x[0]))
 
         # Save to HTML (missing implementation)
-        create_html_table(sorted_data, output_file)
-        send_email_with_attachment(config, output_file)
+        create_html_table(sorted_data, output_file, total_detections, total_detections - total_not_read)
+        # send_email_with_attachment(config, output_file)
         logger.info(f"OCR process completed and results saved to HTML for {date}")
 
-    except Exception as e:
-        logger.error(f"Error in OCR process: {str(e)}")
+    except Exception as ex:
+        logger.error(f"Error in OCR process: {str(ex)}")
         raise
 
 
