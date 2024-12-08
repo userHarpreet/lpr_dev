@@ -186,7 +186,7 @@ def create_html_table(data, output_file, t_detect, t_read):
             # Check if this is the column containing the image path
             if i == 3:  # Assuming the image path is in the 4th column (index 3)
                 if cell != "":
-                    html_content += f'<td><img src=".{cell[21:]}" alt="Image"></td>'
+                    html_content += f'<td><img src="{cell[36:]}" alt="Image"></td>'
                 else:
                     html_content += f"<td>{cell}</td>"
             elif i == 4:
