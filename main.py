@@ -1,3 +1,4 @@
+import base64
 import os
 import cv2
 import easyocr
@@ -15,7 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
 
-from process_image import enhance_plate
+from process_image import enhance_plate, resize_plate
 from validate_number import validate_hsrp
 from crop_images import crop_images_in_folder
 
@@ -39,6 +40,7 @@ SHOW_LIVE = config.getboolean('General', 'SHOW_LIVE')
 PLATE_CONF_MIN = config.getfloat('General', 'PLATE_CONF_MIN')
 VEHICLE_CONF_MIN = config.getfloat('General', 'VEHICLE_CONF_MIN')
 VIDEO_SOURCE = config.get('General', 'VIDEO_SOURCE')
+RESIZE_FACTOR = config.getfloat('General', 'RESIZE_FACTOR')
 TIME_FORMAT = config.get('General', 'TIME_FORMAT')
 OUTPUT_DIR = config.get('General', 'OUTPUT_DIR')
 VEHICLE_CLASSES = [int(cls) for cls in config.get('General', 'VEHICLE_CLASSES').split(',')]
@@ -187,6 +189,11 @@ def create_html_table(data, output_file, t_detect, t_read):
                     html_content += f'<td><img src=".{cell[21:]}" alt="Image"></td>'
                 else:
                     html_content += f"<td>{cell}</td>"
+            elif i == 4:
+                _, img_encoded = cv2.imencode('.jpg', cell)
+                img_bytes = img_encoded.tobytes()
+                img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                html_content += f'<td><img src="data:image/jpeg;base64,{img_base64}" alt="Enhanced Image"></td>'
             else:
                 html_content += f"<td>{cell}</td>"
         html_content += "</tr>"
@@ -209,7 +216,8 @@ def send_email_with_attachment(configration, filename):
     cc_emails = configration.get('Email', 'CC_EMAILS').split(',') if configration.get('Email', 'CC_EMAILS') else []
     password = configration.get('Email', 'PASSWORD')
     subject = configration.get('Email', 'SUBJECT')
-    body = configration.get('Email', 'BODY')
+    body1 = configration.get('Email', 'BODY1')
+    body2 = configration.get('Email', 'BODY2')
     smtp_server = configration.get('SMTP', 'HOST')
     smtp_port = configration.getint('SMTP', 'PORT')
 
@@ -218,33 +226,35 @@ def send_email_with_attachment(configration, filename):
     logger.info('To: %s', ', '.join(to_emails))
     logger.info('Cc: %s', ', '.join(cc_emails))
     logger.info('Subject: %s', subject)
-    logger.info('Attachment: %s', filename)
+    # logger.info('Attachment: %s', filename)
 
     message = MIMEMultipart()
     message["From"] = sender_email
     message["To"] = ", ".join(to_emails)
     message["Cc"] = ", ".join(cc_emails)
     message["Subject"] = subject
+    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    body = body1 + "http://192.168.150.57/output_dir/" + yesterday + body2
     message.attach(MIMEText(body, "plain"))
     logger.debug('Email body attached')
 
-    try:
-        with open(filename, "rb") as attachment:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(attachment.read())
-            logger.debug('File %s read successfully', filename)
-    except IOError as ex:
-        logger.error('Failed to read attachment file: %s', ex)
-        raise
-
-    encoders.encode_base64(part)
-    logger.debug('File encoded successfully')
-    part.add_header(
-        "Content-Disposition",
-        f"attachment; filename= {filename}",
-    )
-    message.attach(part)
-    logger.debug('Attachment added to message')
+    # try:
+    #     with open(filename, "rb") as attachment:
+    #         part = MIMEBase("application", "octet-stream")
+    #         part.set_payload(attachment.read())
+    #         logger.debug('File %s read successfully', filename)
+    # except IOError as ex:
+    #     logger.error('Failed to read attachment file: %s', ex)
+    #     raise
+    #
+    # encoders.encode_base64(part)
+    # logger.debug('File encoded successfully')
+    # part.add_header(
+    #     "Content-Disposition",
+    #     f"attachment; filename= {filename}",
+    # )
+    # message.attach(part)
+    # logger.debug('Attachment added to message')
 
     text = message.as_string()
     all_recipients = to_emails + cc_emails
@@ -288,11 +298,14 @@ def run_ocr_and_save_to_html(date):
     crop_images_in_folder(f"{plates_dir}_org", plates_dir)
 
     data = []
+    total_runs = 0
     total_not_read = 0
     total_detections = len(os.listdir(plates_dir))
 
     try:
         for obj_id in os.listdir(plates_dir):
+            print(f"Object processed by OCR: {total_runs}/{total_detections} out of which {total_not_read} are unable to read by OCR.")
+            total_runs += 1
             obj_dir = os.path.join(plates_dir, obj_id)
             if not os.path.isdir(obj_dir):
                 continue
@@ -346,8 +359,15 @@ def run_ocr_and_save_to_html(date):
                         logger.error(f"Error processing image: {str(ex)}")
                         continue
                 if not result_appended:
-                    results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]],
-                                    enhance_plate(cv2.imread(os.path.join(obj_dir, image_files[second_half[0]]))))))
+                    img_file = image_files[second_half[0]]
+                    img_path = os.path.join(obj_dir, str(img_file))
+                    enhanced_image = enhance_plate(cv2.imread(img_path))
+                    final_image = resize_plate(enhanced_image, 1 / RESIZE_FACTOR)
+                    results.append(("", 0, img_file, img_path, final_image))
+
+                    # results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]],
+                    #                 enhance_plate(cv2.imread(os.path.join(obj_dir, image_files[second_half[0]]))))))
+                    logger.error(f"Unable to run OCR on object: Object ID {obj_id}")
                     total_not_read += 1
 
             # Process results
@@ -380,7 +400,8 @@ def run_ocr_and_save_to_html(date):
 
         # Save to HTML (missing implementation)
         create_html_table(sorted_data, output_file, total_detections, total_detections - total_not_read)
-        # send_email_with_attachment(config, output_file)
+        send_email_with_attachment(config, output_file)
+        print(f"OCR process completed and results saved to HTML for {date}")
         logger.info(f"OCR process completed and results saved to HTML for {date}")
 
     except Exception as ex:

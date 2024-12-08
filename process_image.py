@@ -22,10 +22,12 @@ config = read_config()
 RESIZE_FACTOR = config.getfloat('General', 'RESIZE_FACTOR')
 
 
-def resize_plate(image, given_width, given_height, multiplier):
+def resize_plate(image, multiplier):
+    # Get image dimensions
+    given_height, given_width, *_ = image.shape
     if RESIZE_FACTOR != 1:
         aspect_ratio = given_width / given_height
-        new_height = int(given_width * multiplier)  # multiplier to blast a large image
+        new_height = int(given_height * multiplier)  # multiplier to resize image
         new_width = int(new_height * aspect_ratio)
         image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
         return image
@@ -38,10 +40,8 @@ def resize_plate(image, given_width, given_height, multiplier):
 
 
 def enhance_plate(imgx):
-    # Get image dimensions
-    high, wide, *_ = imgx.shape
     # Resizing the number plate
-    resized_img = resize_plate(imgx, wide, high, RESIZE_FACTOR)
+    resized_img = resize_plate(imgx, RESIZE_FACTOR)
     # Grayscale image
     grayed_img = cv2.cvtColor(resized_img, cv2.COLOR_RGB2GRAY)
     # Blurred image
