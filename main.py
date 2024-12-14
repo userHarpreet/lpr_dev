@@ -234,7 +234,7 @@ def send_email_with_attachment(configration, filename):
     message["Cc"] = ", ".join(cc_emails)
     message["Subject"] = subject
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    body = body1 + "http://192.168.150.57/output_dir/" + yesterday + body2
+    body = body1 + " http://192.168.150.57/output_dir/" + yesterday + " " + body2
     message.attach(MIMEText(body, "plain"))
     logger.debug('Email body attached')
 
@@ -352,7 +352,8 @@ def run_ocr_and_save_to_html(date):
                                     f"Status:{is_valid}, MSG:{message}")
                         if text is not None:
                             if is_valid:
-                                results.append((text, confidence, image_file, image_path, plate_img))
+                                final_image = resize_plate(plate_img, 1 / RESIZE_FACTOR)
+                                results.append((text, confidence, image_file, image_path, final_image))
                                 result_appended = True
 
                     except Exception as ex:
