@@ -280,7 +280,7 @@ def send_email_with_attachment(configration, filename):
 
 def run_ocr_and_save_to_html(date):
     logger.info(f"Starting OCR process for {date}")
-
+    print(f"Starting OCR process for {date}")
     # Input validation
     if not date:
         logger.error("Date parameter is required")
@@ -293,6 +293,7 @@ def run_ocr_and_save_to_html(date):
     # Validate directories exist
     if not os.path.exists(plates_dir):
         logger.error(f"Plates directory not found: {plates_dir}")
+        print(f"Plates directory not found: {plates_dir}")
         return
     os.rename(plates_dir, f"{plates_dir}_org")
     crop_images_in_folder(f"{plates_dir}_org", plates_dir)
@@ -316,10 +317,12 @@ def run_ocr_and_save_to_html(date):
                 image_files = sorted(os.listdir(obj_dir))
             except OSError:
                 logger.error(f"Error reading directory: {obj_dir}")
+                print(f"Error reading directory: {obj_dir}")
                 continue
 
             if not image_files:
                 logger.error(f'Object folder is empty: {obj_dir}')
+                print(f'Object folder is empty: {obj_dir}')
                 continue
 
             if len(image_files) > 1:
@@ -350,6 +353,8 @@ def run_ocr_and_save_to_html(date):
 
                         logger.info(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_path}, "
                                     f"Status:{is_valid}, MSG:{message}")
+                        print(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_path}, "
+                                    f"Status:{is_valid}, MSG:{message}")
                         if text is not None:
                             if is_valid:
                                 final_image = resize_plate(plate_img, 1 / RESIZE_FACTOR)
@@ -369,6 +374,7 @@ def run_ocr_and_save_to_html(date):
                     # results.append(("", 0, image_file, os.path.join(obj_dir, image_files[second_half[0]],
                     #                 enhance_plate(cv2.imread(os.path.join(obj_dir, image_files[second_half[0]]))))))
                     logger.error(f"Unable to run OCR on object: Object ID {obj_id}")
+                    print(f"Unable to run OCR on object: Object ID {obj_id}")
                     total_not_read += 1
 
             # Process results
@@ -396,6 +402,7 @@ def run_ocr_and_save_to_html(date):
                 data.append(row)
             else:
                 logger.error(f'No valid plate found for object: {obj_id}')
+                print(f'No valid plate found for object: {obj_id}')
 
         sorted_data = sorted(data, key=lambda x: int(x[0]))
 
@@ -407,6 +414,7 @@ def run_ocr_and_save_to_html(date):
 
     except Exception as ex:
         logger.error(f"Error in OCR process: {str(ex)}")
+        print(f"Error in OCR process: {str(ex)}")
         raise
 
 
