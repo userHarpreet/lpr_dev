@@ -85,11 +85,14 @@ def recognize_plate(plate_img):
     # plate_img = enhance_plate(plate_img)
     try:
         ocr_result = reader.readtext(plate_img)
+        print(f"OCR: No Error Received.")
         if ocr_result:
+            print(f"OCR: Voila, we did it.")
             return ocr_result[0][1], ocr_result[0][2]  # text and confidence
         return None, None
     except Exception as ex:
         logger.error(f"Error in plate recognition: {ex}")
+        print(f"OCR: Error in plate recognition: {ex}")
         return None, None
 
 
