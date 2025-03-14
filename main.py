@@ -10,8 +10,6 @@ import configparser
 import time
 import smtplib
 import ssl
-from email import encoders
-from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
@@ -174,11 +172,6 @@ def create_html_table(data, output_file, t_detect, t_read):
         html_content += f"<th>{header}</th>"
     html_content += "</tr>"
     for row in data:
-        # html_content += "<tr>"
-        # html_content += f"<td>{serial}</td>"
-        # for cell in row:
-        #     html_content += f"<td>{cell}</td>"
-        # html_content += "</tr>"
 
         html_content += "<tr>"
         html_content += f"<td>{serial}</td>"
@@ -234,27 +227,9 @@ def send_email_with_attachment(configration, filename):
     message["Cc"] = ", ".join(cc_emails)
     message["Subject"] = subject
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    body = body1 + " http://192.168.150.57/output_dir/" + yesterday + " " + body2
+    body = body1 + yesterday + " " + body2
     message.attach(MIMEText(body, "plain"))
     logger.debug('Email body attached')
-
-    # try:
-    #     with open(filename, "rb") as attachment:
-    #         part = MIMEBase("application", "octet-stream")
-    #         part.set_payload(attachment.read())
-    #         logger.debug('File %s read successfully', filename)
-    # except IOError as ex:
-    #     logger.error('Failed to read attachment file: %s', ex)
-    #     raise
-    #
-    # encoders.encode_base64(part)
-    # logger.debug('File encoded successfully')
-    # part.add_header(
-    #     "Content-Disposition",
-    #     f"attachment; filename= {filename}",
-    # )
-    # message.attach(part)
-    # logger.debug('Attachment added to message')
 
     text = message.as_string()
     all_recipients = to_emails + cc_emails
