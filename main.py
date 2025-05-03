@@ -23,9 +23,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
                     filename='lpr_dev.log', filemode='a')
 logger = logging.getLogger(__name__)
 
-# Watchdog interval in seconds
-WATCHDOG_INTERVAL = 5
-
 
 def read_config(config_path='requirements/config.ini'):
     configration = configparser.ConfigParser()
@@ -35,7 +32,7 @@ def read_config(config_path='requirements/config.ini'):
     configration.read(config_path)
     return configration
 
-
+# Load configuration
 config = read_config()
 SHOW_LIVE = config.getboolean('General', 'SHOW_LIVE')
 PLATE_CONF_MIN = config.getfloat('General', 'PLATE_CONF_MIN')
@@ -46,6 +43,8 @@ TIME_FORMAT = config.get('General', 'TIME_FORMAT')
 OUTPUT_DIR = config.get('General', 'OUTPUT_DIR')
 VEHICLE_CLASSES = [int(cls) for cls in config.get('General', 'VEHICLE_CLASSES').split(',')]
 HTML_HEADERS = config.get('HTML', 'HEADERS').split(',')
+# Configurable watchdog interval (in seconds) from config.ini
+WATCHDOG_INTERVAL = config.getint('General', 'WATCHDOG_INTERVAL')
 
 # Initialize models
 try:
