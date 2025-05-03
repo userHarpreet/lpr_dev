@@ -1,10 +1,13 @@
 import base64
 import os
+
 import cv2
-import easyocr
 from datetime import datetime, timedelta
 import multiprocessing as mp
 import logging
+
+import psutil
+import pytesseract
 import schedule
 import configparser
 import time
@@ -54,14 +57,6 @@ except Exception as e:
 
 logger.info("Models loaded successfully")
 
-# Initialize EasyOCR reader
-try:
-    reader = easyocr.Reader(['en'], gpu=False)
-except Exception as e:
-    logger.error(f"Error initializing EasyOCR: {e}")
-    raise
-
-
 def ensure_dir(directory):
     os.makedirs(directory, exist_ok=True)
     logger.debug(f"Ensured directory exists: {directory}")
@@ -80,14 +75,49 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
-    # plate_img = enhance_plate(plate_img)
+    logger.info("Starting license plate recognition with Tesseract")
+
+    # Log image properties
+    img_height, img_width = plate_img.shape[:2] if len(plate_img.shape) >= 2 else (0, 0)
+    img_size_kb = plate_img.size * plate_img.itemsize / 1024
+    logger.info(f"Image dimensions: {img_width}x{img_height}, Size: {img_size_kb:.2f} KB")
+
+    # Log memory usage before OCR
+    process = psutil.Process(os.getpid())
+    mem_before = process.memory_info().rss / (1024 * 1024)
+    logger.info(f"Memory usage before OCR: {mem_before:.2f} MB")
+
+    start_time = time.time()
+
     try:
-        ocr_result = reader.readtext(plate_img)
-        if ocr_result:
-            return ocr_result[0][1], ocr_result[0][2]  # text and confidence
-        return None, None
+        # Configure Tesseract parameters
+        custom_config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+        # Perform OCR
+        logger.info("Calling Tesseract OCR")
+        text = pytesseract.image_to_string(plate_img, config=custom_config).strip()
+
+        # Log processing time
+        elapsed_time = time.time() - start_time
+        logger.info(f"OCR completed in {elapsed_time:.2f} seconds")
+
+        # Log memory usage after OCR
+        mem_after = process.memory_info().rss / (1024 * 1024)
+        logger.info(f"Memory usage after OCR: {mem_after:.2f} MB (Change: {mem_after - mem_before:.2f} MB)")
+
+        if text:
+            logger.info(f"OCR result: Text='{text}'")
+            return text, 1.0  # Return text with confidence 1.0 (Tesseract doesn't provide confidence)
+        else:
+            logger.warning("OCR returned no results")
+            return None, None
+
     except Exception as ex:
-        logger.error(f"Error in plate recognition: {ex}")
+        elapsed_time = time.time() - start_time
+        logger.error(f"Error in plate recognition after {elapsed_time:.2f} seconds: {ex}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        print(f"Error in plate recognition: {ex}")
         return None, None
 
 
@@ -279,6 +309,7 @@ def run_ocr_and_save_to_html(date):
 
     try:
         for obj_id in os.listdir(plates_dir):
+            logger.info(f"Object processed by OCR: {total_runs}/{total_detections} out of which {total_not_read} are unable to read by OCR.")
             print(f"Object processed by OCR: {total_runs}/{total_detections} out of which {total_not_read} are unable to read by OCR.")
             total_runs += 1
             obj_dir = os.path.join(plates_dir, obj_id)
