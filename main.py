@@ -35,7 +35,7 @@ def read_config(config_path='requirements/config.ini'):
     configration.read(config_path)
     return configration
 
-
+# Load configuration
 config = read_config()
 SHOW_LIVE = config.getboolean('General', 'SHOW_LIVE')
 PLATE_CONF_MIN = config.getfloat('General', 'PLATE_CONF_MIN')
@@ -46,6 +46,8 @@ TIME_FORMAT = config.get('General', 'TIME_FORMAT')
 OUTPUT_DIR = config.get('General', 'OUTPUT_DIR')
 VEHICLE_CLASSES = [int(cls) for cls in config.get('General', 'VEHICLE_CLASSES').split(',')]
 HTML_HEADERS = config.get('HTML', 'HEADERS').split(',')
+# Configurable watchdog interval (in seconds) from config.ini
+WATCHDOG_INTERVAL = config.getint('General', 'WATCHDOG_INTERVAL')
 
 # Initialize models
 try:
@@ -75,6 +77,7 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
+
     logger.info("Starting license plate recognition with Tesseract")
 
     # Log image properties
@@ -151,7 +154,6 @@ def process_frame(frame, result):
             if int(obj_class) in VEHICLE_CLASSES:
                 vehicle = frame[int(y1):int(y2), int(x1):int(x2)]
                 timestamp = get_plate(vehicle, int(obj_id))
-                
                 save_image(os.path.join(frames_dir, str(int(obj_id))), f"{timestamp}.jpg", vehicle)
                 logger.info(f"Processed frame for object {int(obj_id)} at {timestamp}")
         except ValueError:
@@ -176,6 +178,22 @@ def plate_detection(frame_queue, result_queue):
             break
         process_frame(frame, result)
         result_queue.put(result)
+
+
+def start_vehicle_process(frame_queue, result_queue):
+    p = mp.Process(target=vehicle_detection, args=(frame_queue, result_queue))
+    p.daemon = True
+    p.start()
+    logger.info(f"Vehicle detection process started with PID {p.pid}")
+    return p
+
+
+def start_plate_process(frame_queue, result_queue):
+    p = mp.Process(target=plate_detection, args=(frame_queue, result_queue))
+    p.daemon = True
+    p.start()
+    logger.info(f"Plate detection process started with PID {p.pid}")
+    return p
 
 
 def create_html_table(data, output_file, t_detect, t_read):
@@ -240,6 +258,7 @@ def send_email_with_attachment(configration, filename):
     password = configration.get('Email', 'PASSWORD')
     subject = configration.get('Email', 'SUBJECT')
     body1 = configration.get('Email', 'BODY1')
+    folder_link = configration.get('Email', 'LINK')
     body2 = configration.get('Email', 'BODY2')
     smtp_server = configration.get('SMTP', 'HOST')
     smtp_port = configration.getint('SMTP', 'PORT')
@@ -257,7 +276,9 @@ def send_email_with_attachment(configration, filename):
     message["Cc"] = ", ".join(cc_emails)
     message["Subject"] = subject
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+
     body = body1 + yesterday + " " + body2
+
     message.attach(MIMEText(body, "plain"))
     logger.debug('Email body attached')
 
@@ -418,14 +439,14 @@ def run_ocr_and_save_to_html(date):
 
 def get_timestamp_from_filename(filename):
     if filename != "":
-        tStamp = filename[0:13]
+        t_stamp = filename[0:13]
         pos_date = [4, 6]
         pos_date.sort()
         for i, pos in enumerate(pos_date):
-            tStamp = tStamp[:pos + i] + '/' + tStamp[pos + i:]
-        tStamp = tStamp.replace("_", " ")
-        tStamp = tStamp[:13] + ':' + tStamp[13:]
-        return tStamp
+            t_stamp = t_stamp[:pos + i] + '/' + t_stamp[pos + i:]
+        t_stamp = t_stamp.replace("_", " ")
+        t_stamp = t_stamp[:13] + ':' + t_stamp[13:]
+        return t_stamp
     else:
         return ""
 
@@ -442,21 +463,29 @@ def main():
     ensure_dir(OUTPUT_DIR)
     frame_queue = mp.Queue()
     result_queue = mp.Queue()
-    vehicle_process = mp.Process(target=vehicle_detection, args=(frame_queue, result_queue))
-    plate_process = mp.Process(target=plate_detection, args=(frame_queue, result_queue))
-    vehicle_process.start()
-    plate_process.start()
 
-    TIME_STAMP = config.get('Schedule', 'JOB_TIME')
+    # Initial process start
+    vehicle_process = start_vehicle_process(frame_queue, result_queue)
+    plate_process = start_plate_process(frame_queue, result_queue)
 
-    # Schedule the OCR job to run daily at 19:08 PM
-    schedule.every().day.at(TIME_STAMP).do(scheduled_job)
+    time_stamp = config.get('Schedule', 'JOB_TIME')
 
-    # Run the scheduled jobs
+    # Schedule the OCR job to run daily
+    schedule.every().day.at(time_stamp).do(scheduled_job)
+
+    # Main loop with watchdog
     while True:
         schedule.run_pending()
-        time.sleep(1)
 
+        if not vehicle_process.is_alive():
+            logger.error("Vehicle detection process died. Restarting...")
+            vehicle_process = start_vehicle_process(frame_queue, result_queue)
+
+        if not plate_process.is_alive():
+            logger.error("Plate detection process died. Restarting...")
+            plate_process = start_plate_process(frame_queue, result_queue)
+
+        time.sleep(WATCHDOG_INTERVAL)
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
