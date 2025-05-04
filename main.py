@@ -258,7 +258,6 @@ def send_email_with_attachment(configration, filename):
     password = configration.get('Email', 'PASSWORD')
     subject = configration.get('Email', 'SUBJECT')
     body1 = configration.get('Email', 'BODY1')
-    folder_link = configration.get('Email', 'LINK')
     body2 = configration.get('Email', 'BODY2')
     smtp_server = configration.get('SMTP', 'HOST')
     smtp_port = configration.getint('SMTP', 'PORT')
