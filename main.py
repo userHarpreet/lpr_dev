@@ -18,7 +18,7 @@ from email.mime.text import MIMEText
 from ultralytics import YOLO
 
 from process_image import enhance_plate, resize_plate
-from validate_number import validate_hsrp
+from validate_number import validate_hsrp, validate_and_format_plate
 from crop_images import crop_images_in_folder
 
 # Set up logging
@@ -372,8 +372,10 @@ def run_ocr_and_save_to_html(date):
                         # Remove spaces from the plate number and change to all CAPS
                         text = text.replace(" ", "").upper()
 
-                        is_valid, message = validate_hsrp(text)
+                        corrected_plate, is_valid, message = validate_and_format_plate(text)
 
+                        logger.info(f"Corrected result: Text='{corrected_plate}'")
+                        text = corrected_plate
                         logger.info(f"File Processed for OCR: Text: {text}, Conf: {confidence}, File: {image_path}, "
                                     f"Status:{is_valid}, MSG:{message}")
                         if text is not None:
