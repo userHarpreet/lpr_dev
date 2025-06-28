@@ -8,6 +8,181 @@ dict_char_to_int = {'O': '0', 'D': '0', 'Q': '0', 'T': '1', 'Z': '2', 'J': '3', 
 dict_int_to_char = {'0': 'Q', '1': 'T', '2': 'Z', '3': 'J', '4': 'A', '5': 'S', '6': 'G', '7': 'T', '8': 'B'}
 dict_no_change = {'O': '0', 'I': '1'}
 
+
+def preprocess_plate_number(plate_number):
+    """
+    Preprocess the plate number to fix common OCR errors based on Indian number plate format.
+    Corrects characters based on their expected position (letters vs numbers).
+    """
+    # Remove spaces and convert to uppercase
+    cleaned_plate = plate_number.replace(" ", "").upper()
+    
+    # Detect plate format and apply corrections accordingly
+    if len(cleaned_plate) >= 4 and cleaned_plate[2:4] == "VA":
+        return preprocess_vintage_series(cleaned_plate)
+    elif len(cleaned_plate) >= 4 and cleaned_plate[2:4] == "BH":
+        return preprocess_bharat_series(cleaned_plate)
+    else:
+        return preprocess_standard_series(cleaned_plate)
+
+
+def preprocess_standard_series(plate_number):
+    """
+    Preprocess standard HSRP format: [State(2)][District(2)][Series(1-3)][Number(4)]
+    Expected: DL01AB1234
+    """
+    if len(plate_number) < 7:  # Minimum valid length
+        return plate_number
+    
+    corrected = list(plate_number)
+    
+    # State code (positions 0-1): Should be letters
+    for i in range(2):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isdigit():
+                # Convert digit to letter if mistakenly recognized
+                if char in dict_int_to_char:
+                    corrected[i] = dict_int_to_char[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # District code (positions 2-3): Should be digits
+    for i in range(2, 4):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isalpha():
+                # Convert letter to digit if mistakenly recognized
+                if char in dict_char_to_int:
+                    corrected[i] = dict_char_to_int[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # Series (positions 4 to -4): Should be letters (1-3 characters)
+    series_end = len(corrected) - 4
+    for i in range(4, series_end):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isdigit():
+                # Convert digit to letter if mistakenly recognized
+                if char in dict_int_to_char:
+                    corrected[i] = dict_int_to_char[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # Number (last 4 positions): Should be digits
+    for i in range(len(corrected) - 4, len(corrected)):
+        if i >= 0 and i < len(corrected):
+            char = corrected[i]
+            if char.isalpha():
+                # Convert letter to digit if mistakenly recognized
+                if char in dict_char_to_int:
+                    corrected[i] = dict_char_to_int[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    return ''.join(corrected)
+
+
+def preprocess_vintage_series(plate_number):
+    """
+    Preprocess vintage HSRP format: [State(2)]VA[Series(1-3)][Number(4)]
+    Expected: DLVA1234 or DLVAAB1234
+    """
+    if len(plate_number) < 8:  # Minimum valid length
+        return plate_number
+    
+    corrected = list(plate_number)
+    
+    # State code (positions 0-1): Should be letters
+    for i in range(2):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isdigit():
+                if char in dict_int_to_char:
+                    corrected[i] = dict_int_to_char[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # VA is fixed (positions 2-3)
+    
+    # Series (positions 4 to -4): Should be letters
+    series_end = len(corrected) - 4
+    for i in range(4, series_end):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isdigit():
+                if char in dict_int_to_char:
+                    corrected[i] = dict_int_to_char[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # Number (last 4 positions): Should be digits
+    for i in range(len(corrected) - 4, len(corrected)):
+        if i >= 0 and i < len(corrected):
+            char = corrected[i]
+            if char.isalpha():
+                if char in dict_char_to_int:
+                    corrected[i] = dict_char_to_int[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    return ''.join(corrected)
+
+
+def preprocess_bharat_series(plate_number):
+    """
+    Preprocess Bharat HSRP format: [Year(2)]BH[Number(4)][Series(1-3)]
+    Expected: 22BH1234AB
+    """
+    if len(plate_number) < 9:  # Minimum valid length
+        return plate_number
+    
+    corrected = list(plate_number)
+    
+    # Year (positions 0-1): Should be digits
+    for i in range(2):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isalpha():
+                if char in dict_char_to_int:
+                    corrected[i] = dict_char_to_int[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # BH is fixed (positions 2-3)
+    
+    # Number (positions 4-7): Should be digits
+    for i in range(4, 8):
+        if i < len(corrected):
+            char = corrected[i]
+            if char.isalpha():
+                if char in dict_char_to_int:
+                    corrected[i] = dict_char_to_int[char]
+            elif char in dict_no_change:
+                corrected[i] = dict_no_change[char]
+    
+    # Series (positions 8+): Should be letters
+    for i in range(8, len(corrected)):
+        char = corrected[i]
+        if char.isdigit():
+            if char in dict_int_to_char:
+                corrected[i] = dict_int_to_char[char]
+        elif char in dict_no_change:
+            corrected[i] = dict_no_change[char]
+    
+    return ''.join(corrected)
+
+
+def validate_and_format_plate(plate_number):
+    """
+    Preprocess the plate number to fix OCR errors, then validate it.
+    Returns the corrected plate number and validation status.
+    """
+    corrected_plate = preprocess_plate_number(plate_number)
+    is_valid, message = validate_hsrp(corrected_plate)
+    return corrected_plate, is_valid, message
+
 # Define valid characters for license plates
 plateChars = "0123456789ABCDEFGHJKLMNOPQRSTUVWXYZ"
 
