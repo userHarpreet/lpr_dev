@@ -284,28 +284,43 @@ valid_state_codes = (
 def validate_hsrp(plate_number):
 
     # Check for special series
-    if "VA" == plate_number[2:4]:
+    if len(plate_number) >= 4 and "VA" == plate_number[2:4]:
         return validate_vintage_series(plate_number)
-    elif "BH" == plate_number[2:4]:
+    elif len(plate_number) >= 4 and "BH" == plate_number[2:4]:
         return validate_bharat_series(plate_number)
     # elif any(x in plate_number for x in ["CD", "CC", "UN"]):
     #     return validate_diplomatic_series(plate_number)
 
+    # Minimum length check for standard format
+    if len(plate_number) < 7:  # At least state(2) + district(1) + number(4)
+        return False, "Plate number too short"
+
     # Extract components for standard format
     state_code = plate_number[:2]
-    district_code = plate_number[2:4]
-    series = plate_number[4:-4]
+    
+    # Handle single or double digit district code
+    # Try to identify where district code ends by checking for first non-digit after position 2
+    district_end = 2
+    while district_end < len(plate_number) and district_end < 4 and plate_number[district_end].isdigit():
+        district_end += 1
+    
+    # If no digits found after state code, it's invalid
+    if district_end == 2:
+        return False, "Invalid district code"
+    
+    district_code = plate_number[2:district_end]
+    series = plate_number[district_end:-4]
     number = plate_number[-4:]
 
     if state_code not in valid_state_codes:
         return False, "Invalid state code"
 
-    # Validate district code (should be a two-digit number)
-    if not district_code.isdigit() or len(district_code) != 2:
+    # Validate district code (should be 1-2 digit number)
+    if not district_code.isdigit() or len(district_code) < 1 or len(district_code) > 2:
         return False, "Invalid district code"
 
-    # Validate series (1 to 3 letters)
-    if not series.isalpha() or len(series) > 3 or 'O' in series or 'I' in series:
+    # Validate series (0 to 3 letters, can be empty)
+    if len(series) > 3 or (len(series) > 0 and (not series.isalpha() or 'O' in series or 'I' in series)):
         return False, "Invalid series"
 
     # Validate number (should be 4 digits)
