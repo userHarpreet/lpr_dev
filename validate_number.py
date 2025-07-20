@@ -3,7 +3,7 @@ from datetime import datetime
 import string
 
 # Define dictionaries for character-to-integer and integer-to-character mappings
-dict_char_to_int = {'O': '0', 'D': '0', 'Q': '0', 'T': '1', 'Z': '2', 'J': '3', 'A': '4', 'S': '5', 'G': '6', 'K': '7',
+dict_char_to_int = {'O': '0', 'D': '0', 'Q': '0', 'I': '1', 'T': '1', 'Z': '2', 'J': '3', 'A': '4', 'S': '5', 'G': '6', 'K': '7',
                     'B': '8'}
 dict_int_to_char = {'0': 'Q', '1': 'T', '2': 'Z', '3': 'J', '4': 'A', '5': 'S', '6': 'G', '7': 'T', '8': 'B'}
 dict_no_change = {'O': '0', 'I': '1'}
@@ -13,7 +13,12 @@ def preprocess_plate_number(plate_number):
     """
     Preprocess the plate number to fix common OCR errors based on Indian number plate format.
     Corrects characters based on their expected position (letters vs numbers).
+    Supports both single-line and two-line (two-wheeler) formats.
     """
+    # Handle two-line format (common for two-wheelers)
+    if '\n' in plate_number or len(plate_number.split()) == 2:
+        return preprocess_two_line_plate(plate_number)
+    
     # Remove spaces and convert to uppercase
     cleaned_plate = plate_number.replace(" ", "").upper()
     
@@ -82,6 +87,83 @@ def preprocess_standard_series(plate_number):
                 corrected[i] = dict_no_change[char]
     
     return ''.join(corrected)
+
+
+def preprocess_two_line_plate(plate_number):
+    """
+    Preprocess two-line HSRP format (common for two-wheelers):
+    Line 1: [State(2)][District(2)]
+    Line 2: [Series(1-3)][Number(4)]
+    Expected: "DL01\nA1234" or "DL01 A1234"
+    """
+    # Split by newline or space
+    if '\n' in plate_number:
+        lines = plate_number.split('\n')
+    else:
+        lines = plate_number.split()
+    
+    if len(lines) != 2:
+        # If not exactly 2 parts, treat as single line
+        return preprocess_standard_series(plate_number.replace('\n', '').replace(' ', '').upper())
+    
+    # Clean up each line
+    line1 = lines[0].replace(' ', '').upper().strip()
+    line2 = lines[1].replace(' ', '').upper().strip()
+    
+    # Validate line lengths
+    if len(line1) < 3 or len(line1) > 4 or len(line2) < 4 or len(line2) > 7:
+        # Invalid format, try as single line
+        combined = line1 + line2
+        return preprocess_standard_series(combined)
+    
+    # Process line 1 (state + district)
+    corrected_line1 = list(line1)
+    
+    # State code (positions 0-1): Should be letters
+    for i in range(min(2, len(corrected_line1))):
+        char = corrected_line1[i]
+        if char.isdigit():
+            if char in dict_int_to_char:
+                corrected_line1[i] = dict_int_to_char[char]
+        elif char in dict_no_change:
+            corrected_line1[i] = dict_no_change[char]
+    
+    # District code (positions 2-3): Should be digits
+    for i in range(2, min(4, len(corrected_line1))):
+        char = corrected_line1[i]
+        if char.isalpha():
+            if char in dict_char_to_int:
+                corrected_line1[i] = dict_char_to_int[char]
+        elif char in dict_no_change:
+            corrected_line1[i] = dict_no_change[char]
+    
+    # Process line 2 (series + number)
+    corrected_line2 = list(line2)
+    
+    # Determine where series ends and number begins (last 4 should be digits)
+    series_end = len(corrected_line2) - 4
+    
+    # Series part: Should be letters
+    for i in range(min(series_end, len(corrected_line2))):
+        char = corrected_line2[i]
+        if char.isdigit():
+            if char in dict_int_to_char:
+                corrected_line2[i] = dict_int_to_char[char]
+        elif char in dict_no_change:
+            corrected_line2[i] = dict_no_change[char]
+    
+    # Number part (last 4): Should be digits
+    for i in range(max(0, series_end), len(corrected_line2)):
+        char = corrected_line2[i]
+        if char.isalpha():
+            if char in dict_char_to_int:
+                corrected_line2[i] = dict_char_to_int[char]
+        elif char in dict_no_change:
+            corrected_line2[i] = dict_no_change[char]
+    
+    # Combine the corrected lines
+    corrected_plate = ''.join(corrected_line1) + ''.join(corrected_line2)
+    return corrected_plate
 
 
 def preprocess_vintage_series(plate_number):

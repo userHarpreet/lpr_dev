@@ -7,7 +7,7 @@ import multiprocessing as mp
 import logging
 
 import psutil
-import pytesseract
+from paddleocr import PaddleOCR
 import schedule
 import configparser
 import time
@@ -18,7 +18,7 @@ from email.mime.text import MIMEText
 from ultralytics import YOLO
 
 from process_image import enhance_plate, resize_plate
-from validate_number import validate_hsrp, validate_and_format_plate
+from validate_number import validate_and_format_plate
 from crop_images import crop_images_in_folder
 
 # Set up logging
@@ -53,8 +53,10 @@ WATCHDOG_INTERVAL = config.getint('General', 'WATCHDOG_INTERVAL')
 try:
     vehicle_model = YOLO(config.get('Models', 'VEHICLE_MODEL_PATH'))
     plate_model = YOLO(config.get('Models', 'PLATE_MODEL_PATH'))
+    # Initialize PaddleOCR
+    ocr_model = PaddleOCR(use_angle_cls=True, lang='en')
 except Exception as e:
-    logger.error(f"Error loading YOLO models: {e}")
+    logger.error(f"Error loading models: {e}")
     raise
 
 logger.info("Models loaded successfully")
@@ -77,8 +79,9 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
-
-    logger.info("Starting license plate recognition with Tesseract")
+    """Recognize text from license plate image using PaddleOCR"""
+    
+    logger.info("Starting license plate recognition with PaddleOCR")
 
     # Log image properties
     img_height, img_width = plate_img.shape[:2] if len(plate_img.shape) >= 2 else (0, 0)
@@ -93,13 +96,10 @@ def recognize_plate(plate_img):
     start_time = time.time()
 
     try:
-        # Configure Tesseract parameters
-        custom_config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-
-        # Perform OCR
-        logger.info("Calling Tesseract OCR")
-        text = pytesseract.image_to_string(plate_img, config=custom_config).strip()
-
+        # Perform OCR with PaddleOCR
+        logger.info("Calling PaddleOCR")
+        result = ocr_model.ocr(plate_img, cls=True)
+        
         # Log processing time
         elapsed_time = time.time() - start_time
         logger.info(f"OCR completed in {elapsed_time:.2f} seconds")
@@ -108,11 +108,35 @@ def recognize_plate(plate_img):
         mem_after = process.memory_info().rss / (1024 * 1024)
         logger.info(f"Memory usage after OCR: {mem_after:.2f} MB (Change: {mem_after - mem_before:.2f} MB)")
 
-        if text:
-            logger.info(f"OCR result: Text='{text}'")
-            return text, 1.0  # Return text with confidence 1.0 (Tesseract doesn't provide confidence)
+        if result and result[0]:
+            # Extract text and confidence from PaddleOCR results
+            texts = []
+            confidences = []
+            
+            for line in result[0]:
+                if len(line) >= 2 and len(line[1]) >= 2:
+                    text = line[1][0]  # Text is at position [1][0]
+                    confidence = line[1][1]  # Confidence is at position [1][1]
+                    
+                    # Filter characters to only alphanumeric (license plate characters)
+                    filtered_text = ''.join(char for char in text if char.isalnum())
+                    
+                    if filtered_text:  # Only add if we have valid text
+                        texts.append(filtered_text)
+                        confidences.append(confidence)
+            
+            if texts:
+                # Join all text segments and get average confidence
+                combined_text = ''.join(texts)
+                avg_confidence = sum(confidences) / len(confidences)
+                
+                logger.info(f"PaddleOCR result: Text='{combined_text}', Confidence={avg_confidence:.3f}")
+                return combined_text, avg_confidence
+            else:
+                logger.warning("PaddleOCR found text but no valid alphanumeric characters")
+                return None, None
         else:
-            logger.warning("OCR returned no results")
+            logger.warning("PaddleOCR returned no results")
             return None, None
 
     except Exception as ex:
@@ -369,8 +393,11 @@ def run_ocr_and_save_to_html(date):
                         plate_img = enhance_plate(plate_img)
                         text, confidence = recognize_plate(plate_img)
 
-                        # Remove spaces from the plate number and change to all CAPS
-                        text = text.replace(" ", "").upper()
+                        # Remove spaces from the plate number and change to all CAPS (only if text is not None)
+                        if text:
+                            text = text.replace(" ", "").upper()
+                        else:
+                            text = ""
 
                         corrected_plate, is_valid, message = validate_and_format_plate(text)
 
