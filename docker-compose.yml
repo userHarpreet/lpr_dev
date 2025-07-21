@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  lpr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lpr-app:latest
+    container_name: lpr-container
+    restart: unless-stopped
+    
+    # Environment variables (override config.ini settings if needed)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SHOW_LIVE=False
+    
+    # Volume mounts for persistent data
+    volumes:
+      - ./output_dir:/app/output_dir
+      - ./debug_plates:/app/debug_plates
+      - ./requirements:/app/requirements:ro  # Read-only mount for config and models
+      - lpr-logs:/app/logs
+    
+    # Network configuration
+    networks:
+      - lpr-network
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import psutil; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Web server for serving HTML reports
+  webserver:
+    image: nginx:alpine
+    container_name: lpr-webserver
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./output_dir:/usr/share/nginx/html/output_dir:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - lpr-network
+    depends_on:
+      - lpr
+
+networks:
+  lpr-network:
+    driver: bridge
+
+volumes:
+  lpr-logs:
+    driver: local

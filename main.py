@@ -54,7 +54,7 @@ try:
     vehicle_model = YOLO(config.get('Models', 'VEHICLE_MODEL_PATH'))
     plate_model = YOLO(config.get('Models', 'PLATE_MODEL_PATH'))
     # Initialize PaddleOCR
-    ocr_model = PaddleOCR(use_angle_cls=True, lang='en')
+    ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
 except Exception as e:
     logger.error(f"Error loading models: {e}")
     raise
@@ -516,5 +516,8 @@ def main():
         time.sleep(WATCHDOG_INTERVAL)
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn')
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError as e:
+        logger.warning(f'Multiprocessing start method already set: {e}')
     main()

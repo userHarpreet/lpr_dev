@@ -1,0 +1,34 @@
+# Minimal LPR Requirements - Core functionality only
+
+# Core LPR Dependencies
+paddleocr
+paddlepaddle
+ultralytics
+
+# Computer Vision
+opencv-python
+pillow
+numpy
+
+# Machine Learning (required by ultralytics)
+torch
+torchvision
+
+# Tracking Dependencies (required by ultralytics tracking)
+cython
+lap>=0.5.12
+
+# Utilities
+requests
+PyYAML
+tqdm
+psutil
+schedule
+python-dateutil
+
+# Text Processing
+python-bidi
+
+# Development
+setuptools
+packaging
