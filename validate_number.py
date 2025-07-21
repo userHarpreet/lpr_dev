@@ -200,37 +200,105 @@ valid_state_codes = (
 
 
 def validate_hsrp(plate_number):
-
-    # Check for special series
-    if "VA" == plate_number[2:4]:
-        return validate_vintage_series(plate_number)
-    elif "BH" == plate_number[2:4]:
-        return validate_bharat_series(plate_number)
-    # elif any(x in plate_number for x in ["CD", "CC", "UN"]):
-    #     return validate_diplomatic_series(plate_number)
-
-    # Extract components for standard format
+    """
+    Enhanced HSRP validation supporting:
+    1. Standard format: DL01AB1234
+    2. Single digit district: CH1AB4578 
+    3. No character series: DL011234 (series length = 0)
+    4. Special series: VA, BH
+    """
+    
+    if len(plate_number) < 6:
+        return False, "Plate number too short"
+    
+    # Check for special series first
+    if len(plate_number) >= 4:
+        if "VA" == plate_number[2:4]:
+            return validate_vintage_series(plate_number)
+        elif "BH" == plate_number[2:4]:
+            return validate_bharat_series(plate_number)
+    
+    # Extract state code (always first 2 characters)
     state_code = plate_number[:2]
-    district_code = plate_number[2:4]
-    series = plate_number[4:-4]
-    number = plate_number[-4:]
-
+    
     if state_code not in valid_state_codes:
         return False, "Invalid state code"
-
-    # Validate district code (should be a two-digit number)
-    if not district_code.isdigit() or len(district_code) != 2:
-        return False, "Invalid district code"
-
-    # Validate series (1 to 3 letters)
-    if not series.isalpha() or len(series) > 3 or 'O' in series or 'I' in series:
-        return False, "Invalid series"
-
-    # Validate number (should be 4 digits)
-    if not number.isdigit() or len(number) != 4:
-        return False, "Invalid number"
-
-    return True, "Valid standard HSRP"
+    
+    remaining = plate_number[2:]
+    
+    # Try Pattern 1: Two-digit district code (standard)
+    if len(remaining) >= 5:  # At least district(2) + number(4) = 6, but we need 5 for flexibility
+        potential_district = remaining[:2]
+        
+        if potential_district.isdigit() and potential_district != "00":
+            rest_after_district = remaining[2:]
+            
+            # Parse series and number from the rest
+            # Number is always at the end (4 digits)
+            if len(rest_after_district) >= 4:
+                # Try to find where the number starts (last 4 digits)
+                if rest_after_district[-4:].isdigit():
+                    series = rest_after_district[:-4]  # Everything before last 4 digits
+                    number = rest_after_district[-4:]   # Last 4 digits
+                    
+                    # Validate series (can be empty - length 0)
+                    if len(series) == 0:
+                        # No series - this is valid for some states
+                        return True, "Valid HSRP (no character series)"
+                    elif series.isalpha() and len(series) <= 3 and 'O' not in series and 'I' not in series:
+                        return True, "Valid standard HSRP"
+                    else:
+                        return False, "Invalid series (should be 1-3 letters, no O or I)"
+                        
+                # Try 5-digit number (some formats allow this)
+                elif len(rest_after_district) >= 5 and rest_after_district[-5:].isdigit():
+                    series = rest_after_district[:-5]  # Everything before last 5 digits
+                    number = rest_after_district[-5:]   # Last 5 digits
+                    
+                    # Validate series (can be empty)
+                    if len(series) == 0:
+                        return True, "Valid HSRP (5-digit number, no series)"
+                    elif series.isalpha() and len(series) <= 3 and 'O' not in series and 'I' not in series:
+                        return True, "Valid HSRP (5-digit number)"
+                    else:
+                        return False, "Invalid series for 5-digit number format"
+    
+    # Try Pattern 2: Single-digit district code
+    if len(remaining) >= 5:  # At least district(1) + series(0-3) + number(4) = 5
+        potential_district = remaining[:1]
+        
+        if potential_district.isdigit() and potential_district != "0":
+            rest_after_district = remaining[1:]
+            
+            # Parse series and number from the rest
+            if len(rest_after_district) >= 4:
+                # Try 4-digit number
+                if rest_after_district[-4:].isdigit():
+                    series = rest_after_district[:-4]  # Everything before last 4 digits
+                    number = rest_after_district[-4:]   # Last 4 digits
+                    
+                    # Validate series (can be empty)
+                    if len(series) == 0:
+                        return True, "Valid single-digit district HSRP (no series)"
+                    elif series.isalpha() and len(series) <= 3 and 'O' not in series and 'I' not in series:
+                        return True, "Valid single-digit district HSRP"
+                    else:
+                        return False, "Invalid series in single-digit district format"
+                        
+                # Try 5-digit number
+                elif len(rest_after_district) >= 5 and rest_after_district[-5:].isdigit():
+                    series = rest_after_district[:-5]  # Everything before last 5 digits
+                    number = rest_after_district[-5:]   # Last 5 digits
+                    
+                    # Validate series (can be empty)
+                    if len(series) == 0:
+                        return True, "Valid single-digit district HSRP (5-digit, no series)"
+                    elif series.isalpha() and len(series) <= 3 and 'O' not in series and 'I' not in series:
+                        return True, "Valid single-digit district HSRP (5-digit)"
+                    else:
+                        return False, "Invalid series in single-digit 5-digit format"
+    
+    return False, "Invalid plate format - unable to parse components"
 
 
 def validate_vintage_series(plate_number):

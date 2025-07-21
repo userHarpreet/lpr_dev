@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 
 import cv2
 from datetime import datetime, timedelta
@@ -77,8 +78,13 @@ def get_output_dirs():
 
 
 def recognize_plate(plate_img):
-
-    logger.info("Starting license plate recognition with Tesseract")
+    """
+    Enhanced license plate recognition that handles both single-line and 2-line plates.
+    Supports motorcycle/2-wheeler plates with 2-line format.
+    """
+    import pytesseract
+    
+    logger.info("Starting enhanced license plate recognition with Tesseract")
 
     # Log image properties
     img_height, img_width = plate_img.shape[:2] if len(plate_img.shape) >= 2 else (0, 0)
@@ -93,35 +99,154 @@ def recognize_plate(plate_img):
     start_time = time.time()
 
     try:
-        # Configure Tesseract parameters
-        custom_config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-
-        # Perform OCR
-        logger.info("Calling Tesseract OCR")
-        text = pytesseract.image_to_string(plate_img, config=custom_config).strip()
-
+        # Detect if this might be a 2-line plate (height > width indicates vertical layout)
+        aspect_ratio = img_height / img_width if img_width > 0 else 1
+        is_likely_two_line = aspect_ratio > 0.7  # Threshold for 2-line detection
+        
+        logger.info(f"Aspect ratio: {aspect_ratio:.2f}, Likely 2-line plate: {is_likely_two_line}")
+        
+        # Try multiple OCR configurations
+        ocr_results = []
+        
+        # Configuration 1: Single line (PSM 7)
+        config_single = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        try:
+            text_single = pytesseract.image_to_string(plate_img, config=config_single).strip()
+            if text_single:
+                ocr_results.append((text_single.replace(' ', ''), 'single_line', len(text_single.replace(' ', ''))))
+                logger.info(f"Single line OCR result: '{text_single}'")
+        except Exception as e:
+            logger.warning(f"Single line OCR failed: {e}")
+        
+        # Configuration 2: Multiple lines (PSM 6) - for 2-line plates
+        config_multi = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        try:
+            text_multi = pytesseract.image_to_string(plate_img, config=config_multi).strip()
+            if text_multi:
+                # Process multi-line result
+                lines = [line.strip() for line in text_multi.split('\n') if line.strip()]
+                if len(lines) >= 2:
+                    # Combine lines for 2-line motorcycle plate
+                    combined_text = ''.join(lines).replace(' ', '')
+                    ocr_results.append((combined_text, 'multi_line', len(combined_text)))
+                    logger.info(f"Multi-line OCR result: {lines} -> '{combined_text}'")
+                elif len(lines) == 1:
+                    single_line_text = lines[0].replace(' ', '')
+                    ocr_results.append((single_line_text, 'multi_as_single', len(single_line_text)))
+        except Exception as e:
+            logger.warning(f"Multi-line OCR failed: {e}")
+        
+        # Configuration 3: Block of text (PSM 8) - alternative approach
+        if is_likely_two_line:
+            config_block = r'--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+            try:
+                text_block = pytesseract.image_to_string(plate_img, config=config_block).strip()
+                if text_block:
+                    # Process block result
+                    lines = [line.strip() for line in text_block.split('\n') if line.strip()]
+                    if len(lines) >= 2:
+                        combined_text = ''.join(lines).replace(' ', '')
+                        ocr_results.append((combined_text, 'block_multi', len(combined_text)))
+                        logger.info(f"Block OCR result: {lines} -> '{combined_text}'")
+            except Exception as e:
+                logger.warning(f"Block OCR failed: {e}")
+        
         # Log processing time
         elapsed_time = time.time() - start_time
-        logger.info(f"OCR completed in {elapsed_time:.2f} seconds")
+        logger.info(f"Enhanced OCR completed in {elapsed_time:.2f} seconds")
 
         # Log memory usage after OCR
         mem_after = process.memory_info().rss / (1024 * 1024)
         logger.info(f"Memory usage after OCR: {mem_after:.2f} MB (Change: {mem_after - mem_before:.2f} MB)")
 
-        if text:
-            logger.info(f"OCR result: Text='{text}'")
-            return text, 1.0  # Return text with confidence 1.0 (Tesseract doesn't provide confidence)
+        if not ocr_results:
+            logger.warning("All OCR configurations returned no results")
+            return None, None
+        
+        # Select best result based on length and format
+        best_result = select_best_ocr_result(ocr_results, is_likely_two_line)
+        
+        if best_result:
+            text, method, length = best_result
+            logger.info(f"Selected best OCR result: '{text}' (method: {method}, length: {length})")
+            return text, 1.0  # Return text with confidence 1.0
         else:
-            logger.warning("OCR returned no results")
+            logger.warning("No valid OCR result found")
             return None, None
 
     except Exception as ex:
         elapsed_time = time.time() - start_time
-        logger.error(f"Error in plate recognition after {elapsed_time:.2f} seconds: {ex}")
+        logger.error(f"Error in enhanced plate recognition after {elapsed_time:.2f} seconds: {ex}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         print(f"Error in plate recognition: {ex}")
         return None, None
+
+
+def select_best_ocr_result(ocr_results, is_likely_two_line):
+    """
+    Select the best OCR result from multiple attempts.
+    Prioritizes results that match expected Indian license plate formats.
+    """
+    if not ocr_results:
+        return None
+    
+    # Score each result
+    scored_results = []
+    
+    for text, method, length in ocr_results:
+        score = 0
+        
+        # Length scoring (Indian plates are typically 7-10 characters)
+        if 7 <= length <= 10:
+            score += 100
+        elif 6 <= length <= 11:
+            score += 80
+        elif length >= 5:
+            score += 60
+        else:
+            score += 20
+        
+        # Format pattern scoring
+        if re.match(r'^[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}$', text):  # Standard format: DL01AB1234
+            score += 200
+        elif re.match(r'^\d{2}BH\d{4}[A-Z]{1,3}$', text):     # Bharat series: 22BH1234AB
+            score += 200
+        elif re.match(r'^[A-Z]{2}VA[A-Z]{0,3}\d{4}$', text):   # Vintage series: DLVA1234
+            score += 200
+        elif re.match(r'^[A-Z]{2}\d{2}[A-Z]{1,3}\d{1,4}$', text):  # Partial match
+            score += 150
+        elif re.match(r'^[A-Z]+\d+$', text) or re.match(r'^\d+[A-Z]+$', text):  # Has both letters and numbers
+            score += 100
+        
+        # Method preference
+        if is_likely_two_line:
+            if method in ['multi_line', 'block_multi']:
+                score += 50  # Prefer multi-line methods for 2-line plates
+            elif method == 'single_line':
+                score += 30  # Still valid but less preferred
+        else:
+            if method == 'single_line':
+                score += 50  # Prefer single-line for regular plates
+            elif method in ['multi_line', 'block_multi']:
+                score += 40
+        
+        # Character validity (only alphanumeric)
+        if text.isalnum():
+            score += 30
+        
+        scored_results.append((score, text, method, length))
+        logger.debug(f"OCR result '{text}' scored {score} points (method: {method})")
+    
+    # Sort by score (highest first)
+    scored_results.sort(key=lambda x: x[0], reverse=True)
+    
+    if scored_results:
+        best_score, best_text, best_method, best_length = scored_results[0]
+        logger.info(f"Best OCR result: '{best_text}' with score {best_score} (method: {best_method})")
+        return (best_text, best_method, best_length)
+    
+    return None
 
 
 def save_image(directory, filename, image):

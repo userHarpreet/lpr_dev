@@ -124,6 +124,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv_linux
 env/
 venv/
 ENV/
@@ -163,6 +164,8 @@ cython_debug/
 /anpr_output/
 /number_plates/
 /number_platesx/
+/trainData/
+/debug_plates/
 
 .idea
 input_5.mkv
@@ -172,3 +175,7 @@ best28.pt
 requirements
 output_dir
 output_dir_preRun
+
+2-LINE_OCR_README.md
+*.txt
+*test*
