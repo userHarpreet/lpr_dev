@@ -24,10 +24,9 @@ PyYAML
 tqdm
 psutil
 schedule
-python-dateutil
+python-dotenv
 
 # Text Processing
-python-bidi
 
 # Development
 setuptools

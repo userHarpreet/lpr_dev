@@ -9,8 +9,9 @@ import logging
 import psutil
 from paddleocr import PaddleOCR
 import schedule
-import configparser
+from dotenv import load_dotenv
 import time
+import shutil
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
@@ -27,34 +28,26 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def read_config(config_path='requirements/config.ini'):
-    configration = configparser.ConfigParser()
-    if not os.path.exists(config_path):
-        logger.error(f"Configuration file {config_path} not found!")
-        raise FileNotFoundError(f"Configuration file {config_path} not found!")
-    configration.read(config_path)
-    return configration
+load_dotenv()
 
 # Load configuration
-config = read_config()
-SHOW_LIVE = config.getboolean('General', 'SHOW_LIVE')
-PLATE_CONF_MIN = config.getfloat('General', 'PLATE_CONF_MIN')
-VEHICLE_CONF_MIN = config.getfloat('General', 'VEHICLE_CONF_MIN')
-VIDEO_SOURCE = config.get('General', 'VIDEO_SOURCE')
-RESIZE_FACTOR = config.getfloat('General', 'RESIZE_FACTOR')
-TIME_FORMAT = config.get('General', 'TIME_FORMAT')
-OUTPUT_DIR = config.get('General', 'OUTPUT_DIR')
-VEHICLE_CLASSES = [int(cls) for cls in config.get('General', 'VEHICLE_CLASSES').split(',')]
-HTML_HEADERS = config.get('HTML', 'HEADERS').split(',')
-# Configurable watchdog interval (in seconds) from config.ini
-WATCHDOG_INTERVAL = config.getint('General', 'WATCHDOG_INTERVAL')
+SHOW_LIVE = os.getenv("SHOW_LIVE") == "True"
+PLATE_CONF_MIN = float(os.getenv("PLATE_CONF_MIN"))
+VEHICLE_CONF_MIN = float(os.getenv("VEHICLE_CONF_MIN"))
+VIDEO_SOURCE = os.getenv("VIDEO_SOURCE")
+RESIZE_FACTOR = float(os.getenv("RESIZE_FACTOR"))
+TIME_FORMAT = os.getenv("TIME_FORMAT")
+OUTPUT_DIR = os.getenv("OUTPUT_DIR")
+VEHICLE_CLASSES = [int(cls) for cls in os.getenv("VEHICLE_CLASSES").split(",")]
+HTML_HEADERS = os.getenv("HTML_HEADERS").split(",")
+WATCHDOG_INTERVAL = int(os.getenv("WATCHDOG_INTERVAL"))
 
 # Initialize models
 try:
-    vehicle_model = YOLO(config.get('Models', 'VEHICLE_MODEL_PATH'))
-    plate_model = YOLO(config.get('Models', 'PLATE_MODEL_PATH'))
+    vehicle_model = YOLO(os.getenv('VEHICLE_MODEL_PATH'))
+    plate_model = YOLO(os.getenv('PLATE_MODEL_PATH'))
     # Initialize PaddleOCR
-    ocr_model = PaddleOCR(use_textline_orientation=True, lang='en')
+    ocr_model = PaddleOCR(use_angle_cls=True, lang='en')
 except Exception as e:
     logger.error(f"Error loading models: {e}")
     raise
@@ -98,7 +91,7 @@ def recognize_plate(plate_img):
     try:
         # Perform OCR with PaddleOCR
         logger.info("Calling PaddleOCR")
-        result = ocr_model.ocr(plate_img, cls=True)
+        result = ocr_model.ocr(plate_img)
         
         # Log processing time
         elapsed_time = time.time() - start_time
@@ -275,16 +268,16 @@ def create_html_table(data, output_file, t_detect, t_read):
     print(f"HTML file created: {output_file}")
 
 
-def send_email_with_attachment(configration, filename):
-    sender_email = configration.get('Email', 'SENDER_EMAIL')
-    to_emails = configration.get('Email', 'TO_EMAILS').split(',')
-    cc_emails = configration.get('Email', 'CC_EMAILS').split(',') if configration.get('Email', 'CC_EMAILS') else []
-    password = configration.get('Email', 'PASSWORD')
-    subject = configration.get('Email', 'SUBJECT')
-    body1 = configration.get('Email', 'BODY1')
-    body2 = configration.get('Email', 'BODY2')
-    smtp_server = configration.get('SMTP', 'HOST')
-    smtp_port = configration.getint('SMTP', 'PORT')
+def send_email_with_attachment(filename):
+    sender_email = os.getenv('SENDER_EMAIL')
+    to_emails = os.getenv('TO_EMAILS').split(',')
+    cc_emails = os.getenv('CC_EMAILS').split(',') if os.getenv('CC_EMAILS') else []
+    password = os.getenv('PASSWORD')
+    subject = os.getenv('SUBJECT')
+    body1 = os.getenv('BODY1')
+    body2 = os.getenv('BODY2')
+    smtp_server = os.getenv('SMTP_HOST')
+    smtp_port = int(os.getenv('SMTP_PORT'))
 
     logger.info('Preparing to send email...')
     logger.info('Sender: %s', sender_email)
@@ -343,7 +336,7 @@ def run_ocr_and_save_to_html(date):
     if not os.path.exists(plates_dir):
         logger.error(f"Plates directory not found: {plates_dir}")
         return
-    os.rename(plates_dir, f"{plates_dir}_org")
+    shutil.move(plates_dir, f"{plates_dir}_org")
     crop_images_in_folder(f"{plates_dir}_org", plates_dir)
 
     data = []
@@ -456,7 +449,7 @@ def run_ocr_and_save_to_html(date):
 
         # Save to HTML (missing implementation)
         create_html_table(sorted_data, output_file, total_detections, total_detections - total_not_read)
-        send_email_with_attachment(config, output_file)
+        send_email_with_attachment(output_file)
         print(f"OCR process completed and results saved to HTML for {date}")
         logger.info(f"OCR process completed and results saved to HTML for {date}")
 
@@ -482,6 +475,7 @@ def get_timestamp_from_filename(filename):
 def scheduled_job():
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     ocr_process = mp.Process(target=run_ocr_and_save_to_html, args=(yesterday,))
+    logger.info("scheduled_job Start")
     ocr_process.start()
     ocr_process.join()
 
@@ -496,10 +490,11 @@ def main():
     vehicle_process = start_vehicle_process(frame_queue, result_queue)
     plate_process = start_plate_process(frame_queue, result_queue)
 
-    time_stamp = config.get('Schedule', 'JOB_TIME')
+    time_stamp = os.getenv('JOB_TIME')
 
     # Schedule the OCR job to run daily
-    schedule.every().day.at(time_stamp).do(scheduled_job)
+    # schedule.every().day.at(time_stamp).do(scheduled_job)
+    schedule.every(5).minutes.do(scheduled_job)
 
     # Main loop with watchdog
     while True:
@@ -513,7 +508,7 @@ def main():
             logger.error("Plate detection process died. Restarting...")
             plate_process = start_plate_process(frame_queue, result_queue)
 
-        time.sleep(WATCHDOG_INTERVAL)
+        time.sleep(1)
 
 if __name__ == '__main__':
     try:

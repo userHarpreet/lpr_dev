@@ -1,6 +1,6 @@
 import os
 import cv2
-import configparser
+from dotenv import load_dotenv
 import logging
 
 # Set up logging
@@ -9,17 +9,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def read_config(config_path='requirements/config.ini'):
-    configration = configparser.ConfigParser()
-    if not os.path.exists(config_path):
-        logger.error(f"Configuration file {config_path} not found!")
-        raise FileNotFoundError(f"Configuration file {config_path} not found!")
-    configration.read(config_path)
-    return configration
+load_dotenv()
 
-
-config = read_config()
-RESIZE_FACTOR = config.getfloat('General', 'RESIZE_FACTOR')
+RESIZE_FACTOR = float(os.getenv("RESIZE_FACTOR"))
 
 
 def resize_plate(image, multiplier):
