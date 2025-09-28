@@ -13,13 +13,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - SHOW_LIVE=False
+      - TZ=Asia/Kolkata
     
     # Volume mounts for persistent data
     volumes:
       - ./output_dir:/app/output_dir
       - ./debug_plates:/app/debug_plates
       - ./requirements:/app/requirements:ro  # Read-only mount for config and models
-      - lpr-logs:/app/logs
+      - ./logs:/app/logs
     
     # Network configuration
     networks:
@@ -29,12 +30,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 4G
+          cpus: '4.0'
+          memory: 16G
         reservations:
           cpus: '1.0'
-          memory: 2G
-    
+          memory: 4G
+
     # Health check
     healthcheck:
       test: ["CMD", "python3", "-c", "import psutil; print('OK')"]
@@ -64,6 +65,8 @@ services:
       - lpr-network
     depends_on:
       - lpr
+    environment:
+      - TZ=Asia/Kolkata
 
 networks:
   lpr-network:

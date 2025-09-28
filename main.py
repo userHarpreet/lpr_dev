@@ -5,6 +5,7 @@ import cv2
 from datetime import datetime, timedelta
 import multiprocessing as mp
 import logging
+import sys
 
 import psutil
 from paddleocr import PaddleOCR
@@ -18,14 +19,43 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from ultralytics import YOLO
 
-from process_image import enhance_plate, resize_plate
+from process_image import enhance_plate, resize_plate, prepare_plate_for_ocr
 from validate_number import validate_and_format_plate
 from crop_images import crop_images_in_folder
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
-                    filename='lpr_dev.log', filemode='a')
+# Set up logging: write to both a file (persisted to /app/logs) and stdout so
+# Docker's logs capture the messages (visible with `docker compose logs`).
+LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
+LOG_LEVEL = logging.INFO
+
 logger = logging.getLogger(__name__)
+logger.setLevel(LOG_LEVEL)
+
+# Ensure logs directory exists (inside container this is a mounted volume)
+LOG_DIR = os.getenv('LOG_DIR', '/app/logs')
+formatter = logging.Formatter(LOG_FORMAT)
+
+# Add stream handler first so we always have console logs even if file logging fails
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(LOG_LEVEL)
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+    try:
+        file_handler = logging.FileHandler(os.path.join(LOG_DIR, 'lpr_dev.log'), mode='a')
+        file_handler.setLevel(LOG_LEVEL)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except Exception as fh_ex:
+        # If file handler fails, keep running with stream logs only
+        logger.warning('Failed to create file handler for logs (%s). Continuing with stdout only.', fh_ex)
+        LOG_DIR = '.'
+except Exception as dir_ex:
+    # If we cannot create the directory (e.g., permission), fallback to stdout only
+    logger.warning('Failed to create log directory %s (%s). Continuing with stdout only.', LOG_DIR, dir_ex)
+    LOG_DIR = '.'
 
 
 load_dotenv()
@@ -89,9 +119,23 @@ def recognize_plate(plate_img):
     start_time = time.time()
 
     try:
-        # Perform OCR with PaddleOCR
+        # Ensure we have a 3-channel image. Some preprocessing paths return a
+        # single-channel (grayscale) image which breaks downstream code that
+        # expects img.shape[2]. Convert to BGR if needed.
+        if len(plate_img.shape) == 2 or (len(plate_img.shape) == 3 and plate_img.shape[2] == 1):
+            logger.debug('Converting single-channel plate image to BGR for OCR')
+            plate_img = cv2.cvtColor(plate_img, cv2.COLOR_GRAY2BGR)
+
+        # Prepare a cleaner image for OCR and call PaddleOCR
+        ocr_input = prepare_plate_for_ocr(plate_img)
         logger.info("Calling PaddleOCR")
-        result = ocr_model.ocr(plate_img)
+        result = ocr_model.ocr(ocr_input)
+
+        # Log raw OCR output for debugging (before filtering to alphanumeric)
+        try:
+            logger.debug('Raw PaddleOCR output: %s', result)
+        except Exception:
+            logger.debug('Raw PaddleOCR output could not be stringified')
         
         # Log processing time
         elapsed_time = time.time() - start_time
@@ -308,13 +352,21 @@ def send_email_with_attachment(filename):
             server.ehlo()
             server.starttls(context=context)
             server.ehlo()
-            server.login(sender_email, password)
+            try:
+                server.login(sender_email, password)
+            except smtplib.SMTPAuthenticationError as auth_ex:
+                # Log the authentication error and continue without crashing
+                logger.error('SMTP authentication failed: %s', auth_ex)
+                print('SMTP authentication failed; email will not be sent')
+                return
             logger.info('Logged in successfully')
             server.sendmail(sender_email, all_recipients, text)
             logger.info('Email sent successfully!')
     except smtplib.SMTPException as ex:
         logger.error('An error occurred while sending the email: %s', ex)
-        raise
+        # Do not re-raise to avoid killing the worker process; caller will
+        # log the failure and continue.
+        return
 
     logger.info('Email sending process completed')
     print('Email sending process completed')
@@ -474,8 +526,8 @@ def get_timestamp_from_filename(filename):
 
 def scheduled_job():
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    ocr_process = mp.Process(target=run_ocr_and_save_to_html, args=(yesterday,))
     logger.info("scheduled_job Start")
+    ocr_process = mp.Process(target=run_ocr_and_save_to_html, args=(yesterday,))
     ocr_process.start()
     ocr_process.join()
 
@@ -492,9 +544,11 @@ def main():
 
     time_stamp = os.getenv('JOB_TIME')
 
+    
+    logger.info("Setting up scheduled job at %s", time_stamp)
     # Schedule the OCR job to run daily
-    # schedule.every().day.at(time_stamp).do(scheduled_job)
-    schedule.every(5).minutes.do(scheduled_job)
+    schedule.every().day.at(time_stamp).do(scheduled_job)
+    #schedule.every(5).minutes.do(scheduled_job)
 
     # Main loop with watchdog
     while True:

@@ -6,6 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    tzdata \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -21,6 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Set timezone environment variable and configure system timezone to
+# ensure processes inside the container use the specified TZ.
+ENV TZ=Asia/Kolkata
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /app
 
