@@ -176,3 +176,11 @@ output_dir
 output_dir_preRun
 
 *.tar
+
+# Application log directories and runtime log files
+logs/
+logs/**
+# In-container log mount
+/app/logs/
+# Specific runtime logfile
+lpr_dev.log

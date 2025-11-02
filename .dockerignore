@@ -49,6 +49,9 @@ lpr_dev.log
 # Output directories (these will be created by the container)
 output_dir
 debug_plates
+requirements
+requirements/
+output_dir/*
 
 # Documentation
 README.md

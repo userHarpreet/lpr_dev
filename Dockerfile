@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+## Multi-stage Dockerfile to reduce final image size
+## Builder stage: install build tools, build wheels / install packages into an isolated prefix
+FROM python:3.11-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -6,6 +8,30 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    tzdata \
+    libgomp1 \
+    libgcc-s1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /install
+
+COPY requirements-minimal.txt ./
+
+# Build wheel files (cache) and install into /install/python
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    pip wheel --no-cache-dir --wheel-dir /install/wheels -r requirements-minimal.txt && \
+    pip install --no-cache-dir --no-index --find-links /install/wheels -r requirements-minimal.txt --target /install/python
+
+## Runtime stage: slim image with only runtime system libs (no build tools)
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Kolkata
+
+# Install only runtime system libraries required by OpenCV / YOLO / ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     libglib2.0-0 \
     libsm6 \
@@ -17,33 +43,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     libice6 \
     ffmpeg \
-    git \
-    wget \
-    curl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set timezone environment variable and configure system timezone to
-# ensure processes inside the container use the specified TZ.
-ENV TZ=Asia/Kolkata
+# Configure timezone
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /app
 
-COPY requirements-minimal.txt .
+# Copy installed Python packages from builder
+COPY --from=builder /install/python /usr/local/lib/python3.11/site-packages
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-minimal.txt
-
+# Copy application code
 COPY . .
 
-RUN mkdir -p output_dir debug_plates
+# Create directories and set ownership for non-root user
+RUN mkdir -p output_dir debug_plates /app/logs && \
+    chmod +x main.py || true && \
+    useradd -m -u 1000 lpruser || true && \
+    mkdir -p /app/vendor && \
+    chown -R lpruser:lpruser /app || true
 
-RUN chmod +x main.py && \
-    useradd -m -u 1000 lpruser && \
-    chown -R lpruser:lpruser /app
+# Copy entrypoint script and make executable
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh && chown lpruser:lpruser /usr/local/bin/entrypoint.sh || true
 
 USER lpruser
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 EXPOSE 8080
 

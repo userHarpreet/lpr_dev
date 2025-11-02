@@ -23,6 +23,133 @@ from process_image import enhance_plate, resize_plate, prepare_plate_for_ocr
 from validate_number import validate_and_format_plate
 from crop_images import crop_images_in_folder
 
+import re
+
+
+def _parse_ocr_lines(result):
+    """Return list of (text, confidence, box, x_center) from PaddleOCR result.
+
+    This parser handles multiple shapes returned by different OCR APIs:
+    - Paddle/PaddleX style dict with 'rec_texts' and 'rec_scores'
+    - list-of-lines where each line is [box, [text, conf]]
+    - list-of-dicts where each dict contains 'text'/'score' and optional box
+
+    The function returns an empty list on any unexpected structure.
+    """
+    lines = []
+    try:
+        if not result:
+            return lines
+
+        # Normalize to 'first' item when result is a list
+        first = result[0] if isinstance(result, list) and len(result) > 0 else result
+
+        # Case 1: Paddle/PaddleX document style: first is dict with rec_texts/rec_scores
+        if isinstance(first, dict):
+            # direct rec_texts + rec_scores
+            if 'rec_texts' in first and 'rec_scores' in first:
+                for t, s in zip(first.get('rec_texts', []), first.get('rec_scores', [])):
+                    text = t or ''
+                    conf = s
+                    box = None
+                    x_center = None
+                    lines.append((text, conf, box, x_center))
+                return lines
+
+            # Try common keys that hold line-level results
+            candidate = None
+            for key in ('rec_res', 'predictions', 'lines'):
+                if key in first and isinstance(first[key], list):
+                    candidate = first[key]
+                    break
+
+            # If still nothing, try to find any list-like value that looks like lines
+            if candidate is None:
+                for v in first.values():
+                    if isinstance(v, list) and len(v) > 0:
+                        candidate = v
+                        break
+
+            if candidate is not None:
+                for item in candidate:
+                    # item can be [box, [text, conf]]
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        box = item[0]
+                        rec = item[1]
+                        if isinstance(rec, (list, tuple)):
+                            text = rec[0] if len(rec) > 0 else ''
+                            conf = rec[1] if len(rec) > 1 else None
+                        elif isinstance(rec, dict):
+                            text = rec.get('text', '')
+                            conf = rec.get('score') or rec.get('confidence')
+                        else:
+                            text = str(rec)
+                            conf = None
+                        x_center = None
+                        try:
+                            if box and hasattr(box, '__iter__'):
+                                xs = [float(pt[0]) for pt in box]
+                                x_center = sum(xs) / len(xs)
+                        except Exception:
+                            x_center = None
+                        lines.append((text, conf, box, x_center))
+                    elif isinstance(item, dict):
+                        text = item.get('text', '') or item.get('rec_text', '')
+                        conf = item.get('score') or item.get('confidence')
+                        box = item.get('box') or item.get('bbox') or item.get('points')
+                        x_center = None
+                        try:
+                            if box and hasattr(box, '__iter__'):
+                                xs = [float(pt[0]) for pt in box]
+                                x_center = sum(xs) / len(xs)
+                        except Exception:
+                            x_center = None
+                        lines.append((text, conf, box, x_center))
+                    elif isinstance(item, str):
+                        lines.append((item, None, None, None))
+                return lines
+
+        # Case 2: result is directly a list of lines ([box, [text, conf]] or dicts)
+        if isinstance(result, list):
+            for item in result:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    box = item[0]
+                    rec = item[1]
+                    if isinstance(rec, (list, tuple)):
+                        text = rec[0] if len(rec) > 0 else ''
+                        conf = rec[1] if len(rec) > 1 else None
+                    elif isinstance(rec, dict):
+                        text = rec.get('text', '')
+                        conf = rec.get('score') or rec.get('confidence')
+                    else:
+                        text = str(rec)
+                        conf = None
+                    x_center = None
+                    try:
+                        if box and hasattr(box, '__iter__'):
+                            xs = [float(pt[0]) for pt in box]
+                            x_center = sum(xs) / len(xs)
+                    except Exception:
+                        x_center = None
+                    lines.append((text, conf, box, x_center))
+                elif isinstance(item, dict):
+                    text = item.get('text', '') or item.get('rec_text', '')
+                    conf = item.get('score') or item.get('confidence')
+                    box = item.get('box') or item.get('bbox') or item.get('points')
+                    x_center = None
+                    try:
+                        if box and hasattr(box, '__iter__'):
+                            xs = [float(pt[0]) for pt in box]
+                            x_center = sum(xs) / len(xs)
+                    except Exception:
+                        x_center = None
+                    lines.append((text, conf, box, x_center))
+                elif isinstance(item, str):
+                    lines.append((item, None, None, None))
+        return lines
+    except Exception:
+        return []
+
 # Set up logging: write to both a file (persisted to /app/logs) and stdout so
 # Docker's logs capture the messages (visible with `docker compose logs`).
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
@@ -131,11 +258,22 @@ def recognize_plate(plate_img):
         logger.info("Calling PaddleOCR")
         result = ocr_model.ocr(ocr_input)
 
-        # Log raw OCR output for debugging (before filtering to alphanumeric)
+        # Log raw OCR output at INFO so it's visible in standard logs (before filtering)
         try:
-            logger.debug('Raw PaddleOCR output: %s', result)
+            logger.info('Raw PaddleOCR output (primary): %s', result)
         except Exception:
-            logger.debug('Raw PaddleOCR output could not be stringified')
+            logger.info('Raw PaddleOCR output could not be stringified')
+
+        # Also log each detected line (text + confidence + box) using the
+        # robust parser so we handle both list and dict-shaped PaddleOCR
+        # outputs uniformly and avoid index/type errors.
+        try:
+            parsed_preview = _parse_ocr_lines(result)
+            if parsed_preview:
+                for i, (text, conf, box, xc) in enumerate(parsed_preview):
+                    logger.info("PaddleOCR line %d: text='%s', conf=%s, box=%s", i, text, conf, box)
+        except Exception:
+            logger.debug('No readable OCR lines to iterate')
         
         # Log processing time
         elapsed_time = time.time() - start_time
@@ -146,32 +284,118 @@ def recognize_plate(plate_img):
         logger.info(f"Memory usage after OCR: {mem_after:.2f} MB (Change: {mem_after - mem_before:.2f} MB)")
 
         if result and result[0]:
-            # Extract text and confidence from PaddleOCR results
-            texts = []
-            confidences = []
-            
-            for line in result[0]:
-                if len(line) >= 2 and len(line[1]) >= 2:
-                    text = line[1][0]  # Text is at position [1][0]
-                    confidence = line[1][1]  # Confidence is at position [1][1]
-                    
-                    # Filter characters to only alphanumeric (license plate characters)
-                    filtered_text = ''.join(char for char in text if char.isalnum())
-                    
-                    if filtered_text:  # Only add if we have valid text
-                        texts.append(filtered_text)
-                        confidences.append(confidence)
-            
-            if texts:
-                # Join all text segments and get average confidence
-                combined_text = ''.join(texts)
-                avg_confidence = sum(confidences) / len(confidences)
-                
+            # Parse OCR lines robustly and assemble candidate text by X position
+            parsed = _parse_ocr_lines(result)
+
+            def assemble_from_parsed(parsed_lines):
+                parts = []
+                confs = []
+                # sort by x_center (None -> end)
+                parsed_sorted = sorted(parsed_lines, key=lambda x: (x[3] is None, x[3]))
+                for text, conf, box, xc in parsed_sorted:
+                    if not text:
+                        continue
+                    filtered = ''.join(ch for ch in text if ch.isalnum())
+                    if filtered:
+                        parts.append(filtered)
+                        try:
+                            confs.append(float(conf) if conf is not None else 0.0)
+                        except Exception:
+                            confs.append(0.0)
+                if parts:
+                    combined = ''.join(parts)
+                    avg_conf = sum(confs) / len(confs) if confs else 0.0
+                    return combined, avg_conf
+                return None, None
+
+            combined_text, avg_confidence = assemble_from_parsed(parsed)
+            if combined_text:
                 logger.info(f"PaddleOCR result: Text='{combined_text}', Confidence={avg_confidence:.3f}")
                 return combined_text, avg_confidence
-            else:
-                logger.warning("PaddleOCR found text but no valid alphanumeric characters")
-                return None, None
+
+            # No alphanumeric from primary result. Try several fallback strategies:
+            logger.warning("PaddleOCR found text but no valid alphanumeric characters")
+            try:
+                logger.info('Raw PaddleOCR output (primary) for failure case: %s', result)
+            except Exception:
+                logger.info('Raw PaddleOCR output could not be stringified for failure case')
+
+            candidates = []
+
+            # 1) Try OCR on upscaled original if small
+            try:
+                h, w = plate_img.shape[:2]
+                scale = 1.0
+                min_h = 128
+                min_w = 320
+                if h < min_h or w < min_w:
+                    scale = max(min_h / max(1, h), min_w / max(1, w))
+                    up = cv2.resize(plate_img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
+                    logger.info('Attempting OCR on upscaled image (scale=%0.2f)', scale)
+                    up_res = ocr_model.ocr(up)
+                    parsed_up = _parse_ocr_lines(up_res)
+                    assembled = assemble_from_parsed(parsed_up)
+                    if assembled[0]:
+                        candidates.append((assembled[0], assembled[1], 'upscaled'))
+            except Exception as up_ex:
+                logger.debug('Upscale OCR attempt failed: %s', up_ex)
+
+            # 2) If PaddleOCR provided a rotated image (rot_img), try OCR on it
+            try:
+                rot_img = None
+                if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
+                    rot_img = result[0].get('rot_img')
+                if rot_img is not None:
+                    logger.info('Attempting OCR on rotated image provided by PaddleOCR')
+                    rot_res = ocr_model.ocr(rot_img)
+                    parsed_rot = _parse_ocr_lines(rot_res)
+                    assembled = assemble_from_parsed(parsed_rot)
+                    if assembled[0]:
+                        candidates.append((assembled[0], assembled[1], 'rotated'))
+            except Exception as rot_ex:
+                logger.debug('Rotated OCR attempt failed: %s', rot_ex)
+
+            # 3) Try OCR on original (less processed)
+            try:
+                logger.info('Attempting fallback OCR on original plate image (less processed)')
+                orig_res = ocr_model.ocr(plate_img)
+                parsed_orig = _parse_ocr_lines(orig_res)
+                assembled = assemble_from_parsed(parsed_orig)
+                if assembled[0]:
+                    candidates.append((assembled[0], assembled[1], 'original'))
+            except Exception as orig_ex:
+                logger.debug('Original OCR attempt failed: %s', orig_ex)
+
+            # Choose best candidate by highest confidence (and prefer non-empty)
+            if candidates:
+                # sort by confidence descending
+                candidates.sort(key=lambda x: x[1] if x[1] is not None else 0.0, reverse=True)
+                best = candidates[0]
+                logger.info("PaddleOCR fallback chosen (%s): Text='%s', Confidence=%s", best[2], best[0], best[1])
+                return best[0], best[1]
+
+            # No candidates found - save artifacts for debugging
+            logger.warning('Fallback OCR also returned no valid alphanumeric characters')
+            try:
+                fail_dir = os.path.join(LOG_DIR, 'ocr_failures')
+                os.makedirs(fail_dir, exist_ok=True)
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                proc_path = os.path.join(fail_dir, f'{ts}_processed.jpg')
+                orig_path = os.path.join(fail_dir, f'{ts}_original.jpg')
+                cv2.imwrite(proc_path, ocr_input)
+                cv2.imwrite(orig_path, plate_img)
+                try:
+                    import json
+                    raw_path = os.path.join(fail_dir, f'{ts}_raw.json')
+                    with open(raw_path, 'w') as rf:
+                        json.dump(result, rf, default=str)
+                    logger.info('Saved OCR failure artifacts to %s', fail_dir)
+                except Exception:
+                    logger.warning('Failed to write raw OCR JSON for diagnostics')
+            except Exception as save_ex:
+                logger.warning('Failed to save OCR diagnostic artifacts: %s', save_ex)
+
+            return None, None
         else:
             logger.warning("PaddleOCR returned no results")
             return None, None
@@ -382,26 +606,35 @@ def run_ocr_and_save_to_html(date):
 
     input_dir = os.path.join(OUTPUT_DIR, date)
     plates_dir = os.path.join(input_dir, "plates")
+    plates_new_dir = os.path.join(input_dir, "plates_new")
     output_file = os.path.join(input_dir, "index.html")
 
-    # Validate directories exist
+    # Validate original plates directory exists
     if not os.path.exists(plates_dir):
         logger.error(f"Plates directory not found: {plates_dir}")
         return
-    shutil.move(plates_dir, f"{plates_dir}_org")
-    crop_images_in_folder(f"{plates_dir}_org", plates_dir)
+
+    # Prepare cropped images into `plates_new` (do a fresh crop)
+    # If a previous `plates_new` exists, remove it to avoid stale files.
+    if os.path.exists(plates_new_dir):
+        try:
+            shutil.rmtree(plates_new_dir)
+        except Exception as e:
+            logger.warning('Failed to remove existing plates_new directory %s: %s', plates_new_dir, e)
+
+    crop_images_in_folder(plates_dir, plates_new_dir)
 
     data = []
     total_runs = 0
     total_not_read = 0
-    total_detections = len(os.listdir(plates_dir))
+    total_detections = len(os.listdir(plates_new_dir))
 
     try:
-        for obj_id in os.listdir(plates_dir):
+        for obj_id in os.listdir(plates_new_dir):
             logger.info(f"Object processed by OCR: {total_runs}/{total_detections} out of which {total_not_read} are unable to read by OCR.")
             print(f"Object processed by OCR: {total_runs}/{total_detections} out of which {total_not_read} are unable to read by OCR.")
             total_runs += 1
-            obj_dir = os.path.join(plates_dir, obj_id)
+            obj_dir = os.path.join(plates_new_dir, obj_id)
             if not os.path.isdir(obj_dir):
                 continue
 
