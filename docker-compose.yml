@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+  lpr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lpr-app:latest
+    restart: unless-stopped
+    volumes:
+      - ./:/app:rw          # bind-mount source for live edits
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./models:/app/models:ro
+    environment:
+      - SHOW_LIVE=False
+    command: python -u main.py
+    ports:
+      - "8080:8080"
+    stdin_open: true
+    tty: true
+    env_file:
+      - ./.env
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G

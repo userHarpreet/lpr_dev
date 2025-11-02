@@ -1,0 +1,59 @@
+# Multi-stage build: builder creates a virtualenv, runtime is smaller and runs non-root
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 VENV_PATH=/opt/venv
+
+WORKDIR /src
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       apt-utils ca-certificates \
+       build-essential cmake git wget curl ffmpeg \
+       libglib2.0-0 libsm6 libxext6 libxrender1 \
+       libfontconfig1 libice6 \
+       libjpeg62-turbo-dev libpng-dev libtiff5-dev \
+       python3-dev gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-minimal.txt .
+
+RUN python -m venv $VENV_PATH \
+    && $VENV_PATH/bin/pip install --upgrade pip wheel setuptools \
+    && $VENV_PATH/bin/pip install --no-cache-dir -r requirements-minimal.txt \
+    && $VENV_PATH/bin/pip cache purge || true
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 VENV_PATH=/opt/venv APP_HOME=/app
+
+WORKDIR $APP_HOME
+
+# minimal runtime deps required by OpenCV / libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libglib2.0-0 libsm6 libxext6 libxrender1 libfontconfig1 libice6 \
+    libjpeg62-turbo libpng16-16 && rm -rf /var/lib/apt/lists/*
+
+# copy venv from builder
+COPY --from=builder /opt/venv ${VENV_PATH}
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+# create non-root user and app dirs
+RUN groupadd -r app && useradd -r -g app -m -d /home/app app \
+    && mkdir -p /app/logs /app/output /app/models \
+    && chown -R app:app /app /home/app
+
+# copy application code as non-root owner
+COPY --chown=app:app . $APP_HOME
+
+# runtime cleanup to reduce image size
+RUN rm -rf /tmp/* /var/cache/apt/* /var/lib/apt/lists/* /root/.cache/* || true
+
+USER app
+
+ENV LOG_DIR=/app/logs OUTPUT_DIR=/app/output SHOW_LIVE=False
+
+# Healthcheck: ensure main.py process is running inside container
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD pgrep -f 'main.py' >/dev/null || exit 1
+
+ENTRYPOINT ["python", "main.py"]
