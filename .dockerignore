@@ -52,6 +52,7 @@ debug_plates
 requirements
 requirements/
 output_dir/*
+logs/
 
 # Documentation
 README.md
