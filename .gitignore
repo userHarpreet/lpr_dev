@@ -184,3 +184,5 @@ logs/**
 /app/logs/
 # Specific runtime logfile
 lpr_dev.log
+/data
+/old_code
