@@ -1,0 +1,59 @@
+services:
+  lpr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lpr-app:latest
+    container_name: lpr-container
+    restart: unless-stopped
+
+    # Environment variables (override config.ini settings if needed)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SHOW_LIVE=False
+      - TZ=Asia/Kolkata
+
+    # Volume mounts for persistent data
+    volumes:
+      - ./output_dir:/app/output_dir
+      - ./debug_plates:/app/debug_plates
+      - ./requirements:/app/requirements:ro # Read-only mount for config and models
+      - ./logs:/app/logs
+      - ./data:/app/data
+
+    # Network configuration
+    networks:
+      - lpr-network
+
+    # Resource limits: Removed to allow full host utilization during emulation
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '4.0'
+    #       memory: 16G
+    #     reservations:
+    #       cpus: '1.0'
+    #       memory: 4G
+
+    # Health check
+    healthcheck:
+      test: [ "CMD", "python3", "-c", "import psutil; print('OK')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  lpr-network:
+    driver: bridge
+
+volumes:
+  lpr-logs:
+    driver: local

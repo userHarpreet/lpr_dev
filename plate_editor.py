@@ -120,6 +120,14 @@ class PlateEditorProcess(Process):
     def run(self):
         """Main process loop - enhance plate images."""
         try:
+            # Configure logging for this process
+            import sys
+            logging.basicConfig(
+                level=logging.INFO,
+                format="[%(asctime)s] %(name)s/%(levelname)s: %(message)s",
+                stream=sys.stdout,
+                force=True
+            )
             self.logger.info(f"[{self.name}] Starting plate editor process")
             self.logger.info(
                 f"[{self.name}] Enhancement method: {self.enhance_method}, "

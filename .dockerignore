@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+debug_plates/
+.idea
+.venv
+.venv_linux
+__pycache__
+logs
+output_dir
+data/

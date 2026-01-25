@@ -80,6 +80,14 @@ class StorageProcess(Process):
     def run(self):
         """Main process loop - store data."""
         try:
+            # Configure logging for this process
+            import sys
+            logging.basicConfig(
+                level=logging.INFO,
+                format="[%(asctime)s] %(name)s/%(levelname)s: %(message)s",
+                stream=sys.stdout,
+                force=True
+            )
             self.logger.info(f"[{self.name}] Starting storage process")
             self.logger.info(f"[{self.name}] Storage directory: {self.storage_dir}")
             self.logger.info(f"[{self.name}] Database path: {self.db_path}")
@@ -110,6 +118,18 @@ class StorageProcess(Process):
             self.db_conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = self.db_conn.cursor()
             
+            # Create tables
+            # Check database version
+            cursor.execute("PRAGMA user_version")
+            current_version = cursor.fetchone()[0]
+            TARGET_VERSION = 1
+            
+            if current_version < TARGET_VERSION:
+                self.logger.warning(f"[{self.name}] DB version {current_version} is older than {TARGET_VERSION}. Purging old tables...")
+                cursor.execute("DROP TABLE IF EXISTS lpr_records")
+                cursor.execute("DROP TABLE IF EXISTS frame_metadata")
+                cursor.execute(f"PRAGMA user_version = {TARGET_VERSION}")
+
             # Create tables
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS lpr_records (

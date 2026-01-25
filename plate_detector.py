@@ -137,6 +137,14 @@ class PlateDetectorProcess(Process):
     def run(self):
         """Main process loop - detect plates in frames."""
         try:
+            # Configure logging for this process
+            import sys
+            logging.basicConfig(
+                level=logging.INFO,
+                format="[%(asctime)s] %(name)s/%(levelname)s: %(message)s",
+                stream=sys.stdout,
+                force=True
+            )
             self.logger.info(f"[{self.name}] Starting plate detector process")
             self._load_model()
             self._detect_plates()

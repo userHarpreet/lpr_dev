@@ -1,0 +1,6 @@
+opencv-python-headless
+python-dotenv
+ultralytics
+paddlepaddle
+paddleocr
+psutil

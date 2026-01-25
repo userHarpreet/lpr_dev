@@ -115,6 +115,14 @@ class OCRProcess(Process):
     def run(self):
         """Main process loop - perform OCR on plates."""
         try:
+            # Configure logging for this process
+            import sys
+            logging.basicConfig(
+                level=logging.INFO,
+                format="[%(asctime)s] %(name)s/%(levelname)s: %(message)s",
+                stream=sys.stdout,
+                force=True
+            )
             self.logger.info(f"[{self.name}] Starting OCR process")
             self._load_model()
             self._recognize_plates()

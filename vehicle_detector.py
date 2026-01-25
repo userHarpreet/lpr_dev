@@ -132,6 +132,13 @@ class VehicleDetectorProcess(Process):
     def run(self):
         """Main process loop - detect vehicles in frames."""
         try:
+            # Force logging configuration in child process
+            import sys
+            logging.basicConfig(
+                level=logging.INFO,
+                format="[%(asctime)s] %(name)s/%(levelname)s: %(message)s",
+                stream=sys.stdout
+            )
             self.logger.info(f"[{self.name}] Starting vehicle detector process")
             self._load_model()
             self._detect_vehicles()
@@ -218,8 +225,15 @@ class VehicleDetectorProcess(Process):
             List of Detection objects
         """
         try:
-            # Run inference
+            # Run inference with timing
+            inf_start = time.time()
             results = self.model(frame_obj.data, conf=self.conf_threshold, verbose=False)
+            inf_duration = time.time() - inf_start
+            
+            # Log slow inference (likely on emulation)
+            self.logger.info(
+                f"[{self.name}] Inference time: {inf_duration:.3f}s for frame {frame_obj.frame_id}"
+            )
             
             detections = []
             

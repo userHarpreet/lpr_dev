@@ -132,12 +132,25 @@ class ProcessPool:
 # Main orchestration
 # -------------------------
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] %(processName)s/%(levelname)s: %(message)s",
-        stream=sys.stdout,
-    )
+    LOG_LEVEL = logging.INFO
+    LOG_FORMAT = "[%(asctime)s] %(processName)s/%(levelname)s: %(message)s"
 
+    # Configure Root Logger to ensure all modules (video_reader, etc.) are captured
+    root_logger = logging.getLogger()
+    root_logger.setLevel(LOG_LEVEL)
+
+    # Clear existing handlers to prevent duplicates
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+
+    # Add stream handler properly
+    formatter = logging.Formatter(LOG_FORMAT)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(LOG_LEVEL)
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+
+    # Use root logger for this module too
     logger = logging.getLogger(__name__)
 
     # Use 'spawn' on platforms like Windows to be safe
@@ -147,10 +160,24 @@ def main():
         pass
 
     storage_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "data"))
-    db_path = os.path.join(storage_dir, "lpr.db")
+    db_path = os.path.join(storage_dir, "lpr_v2.db")
+    LOG_DIR = os.path.join(storage_dir, "logs")
 
     ensure_dirs(storage_dir)
     init_db(db_path)
+
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        try:
+            file_handler = logging.FileHandler(os.path.join(LOG_DIR, 'lpr_dev.log'), mode='a')
+            file_handler.setLevel(LOG_LEVEL)
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+        except Exception as e:
+            logger.error(f"Failed to set up file logging: {e}")
+    except Exception as e:
+        logger.error(f"Failed to create log directory {LOG_DIR}: {e}")
+
 
     logger.info("=" * 60)
     logger.info("Starting LPR Pipeline")

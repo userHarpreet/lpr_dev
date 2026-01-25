@@ -76,6 +76,18 @@ class VideoReaderProcess(Process):
     def run(self):
         """Main process loop - read and distribute frames."""
         try:
+            # Configure logging for this process
+            import sys
+            logging.basicConfig(
+                level=logging.INFO,
+                format="[%(asctime)s] %(name)s/%(levelname)s: %(message)s",
+                stream=sys.stdout,
+                force=True
+            )
+            
+            # Disable OpenCV threading to avoid conflicts with multiprocessing
+            cv2.setNumThreads(0)
+            
             self.logger.info(f"[{self.name}] Starting video reader with source: {self.source}")
             self._read_video()
         except Exception as e:
@@ -171,6 +183,22 @@ class VideoReaderProcess(Process):
                 source_type = self._detect_source_type(self.source)
                 self.logger.info(f"[{self.name}] Opening {source_type}: {self.source}")
                 
+                # Debug: Verify file existence if it's a file
+                if source_type == "Video File":
+                    file_path = Path(self.source).resolve()
+                    self.logger.info(f"[{self.name}] checking absolute path: {file_path}")
+                    if not file_path.exists():
+                        self.logger.error(f"[{self.name}] CRITICAL: Video file does not exist at path: {file_path}")
+                        # Check contents of requirements directory to help debug
+                        try:
+                            req_dir = Path('/app/requirements')
+                            if req_dir.exists():
+                                self.logger.info(f"[{self.name}] Listing /app/requirements: {[f.name for f in req_dir.iterdir()]}")
+                        except Exception as e:
+                            self.logger.error(f"Failed to list directory: {e}")
+                    else:
+                        self.logger.info(f"[{self.name}] File exists! Size: {file_path.stat().st_size} bytes")
+
                 cap = cv2.VideoCapture(self.source)
                 if not cap.isOpened():
                     self.logger.error(f"[{self.name}] Failed to open source: {self.source}")
